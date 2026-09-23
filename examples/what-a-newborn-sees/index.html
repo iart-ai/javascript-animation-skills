@@ -1,0 +1,541 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>What a Newborn Sees</title>
+<style>
+  html,body{margin:0;background:#1b1917;display:grid;place-items:center;height:100vh}
+  canvas{width:min(100vw,100vh);height:min(100vw,100vh)}
+</style>
+</head>
+<body>
+<canvas id="c" width="1080" height="1080"></canvas>
+<script>
+// Every pixel is drawn in code: no images, no fonts loaded, no libraries.
+// Deterministic: draw(frame) renders any frame from scratch (seekable).
+const W = 1080, H = 1080, FPS = 30, DUR = 42, FRAMES = FPS * DUR;
+const cv = document.getElementById('c');
+let ctx = cv.getContext('2d');
+
+const PAPER = '#f2ead8', INK = '#2a2522', RED = '#d8473b', BLUE = '#2f4a7a',
+      YELLOW = '#e9b949', SKIN = '#efcfb4', SHADOW = 'rgba(42,37,34,0.18)';
+
+// ---------- math ----------
+const clamp = (x, a = 0, b = 1) => Math.max(a, Math.min(b, x));
+const lerp = (a, b, t) => a + (b - a) * t;
+const ease = t => { t = clamp(t); return t < .5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2; };
+const easeOut = t => 1 - Math.pow(1 - clamp(t), 3);
+const back = t => { t = clamp(t); const c = 1.7; return 1 + (c + 1) * Math.pow(t - 1, 3) + c * Math.pow(t - 1, 2); };
+const prog = (t, a, b) => clamp((t - a) / (b - a));
+
+function hash2(a, b) {
+  let n = Math.imul(a | 0, 374761393) + Math.imul(b | 0, 668265263);
+  n = Math.imul(n ^ (n >>> 13), 1274126177);
+  return ((n ^ (n >>> 16)) >>> 0) / 4294967295;
+}
+function vnoise(x, y) {
+  const xi = Math.floor(x), yi = Math.floor(y), xf = x - xi, yf = y - yi;
+  const u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf);
+  return lerp(lerp(hash2(xi, yi), hash2(xi + 1, yi), u), lerp(hash2(xi, yi + 1), hash2(xi + 1, yi + 1), u), v);
+}
+function rng(seed) { let a = seed | 0; return () => { a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+
+// ---------- hand-drawn primitives ----------
+let BOIL = 0;          // changes every 4 frames -> "line boil"
+let SHADOWING = false; // when true, primitives paint the drop shadow color
+
+function jit(x, y, seed, amp) {
+  const s = seed * 13.37;
+  return [
+    x + (vnoise(x * .012 + s, y * .012) - .5) * 2 * amp + (vnoise(x * .09 + s, y * .09 + 7) - .5) * amp * .6,
+    y + (vnoise(x * .012, y * .012 + s + 50) - .5) * 2 * amp + (vnoise(x * .09 + 3, y * .09 + s) - .5) * amp * .6,
+  ];
+}
+function resample(pts, step = 9, closed = false) {
+  const out = [], P = closed ? [...pts, pts[0]] : pts;
+  for (let i = 0; i < P.length - 1; i++) {
+    const [x0, y0] = P[i], [x1, y1] = P[i + 1], n = Math.max(1, Math.ceil(Math.hypot(x1 - x0, y1 - y0) / step));
+    for (let k = 0; k < n; k++) out.push([lerp(x0, x1, k / n), lerp(y0, y1, k / n)]);
+  }
+  if (!closed) out.push(P[P.length - 1]);
+  return out;
+}
+function tracePath(pts, closed) {
+  ctx.beginPath();
+  if (pts.length < 3) { ctx.moveTo(...pts[0]); pts.slice(1).forEach(p => ctx.lineTo(...p)); if (closed) ctx.closePath(); return; }
+  const P = closed ? [...pts, pts[0], pts[1]] : pts;
+  ctx.moveTo(...(closed ? [(P[0][0] + P[1][0]) / 2, (P[0][1] + P[1][1]) / 2] : P[0]));
+  for (let i = 1; i < P.length - 1; i++) ctx.quadraticCurveTo(P[i][0], P[i][1], (P[i][0] + P[i + 1][0]) / 2, (P[i][1] + P[i + 1][1]) / 2);
+  if (!closed) ctx.lineTo(...P[P.length - 1]); else ctx.closePath();
+}
+const J = (pts, seed, amp) => pts.map(([x, y]) => jit(x, y, BOIL + seed, amp));
+
+function ink(pts, o = {}) {
+  const { w = 4, col = INK, closed = false, amp = 2, seed = 0, passes = 2, alpha = 1 } = o;
+  ctx.save(); ctx.lineCap = ctx.lineJoin = 'round';
+  for (let p = 0; p < passes; p++) {
+    ctx.globalAlpha = alpha * (p ? .45 : 1);
+    ctx.strokeStyle = SHADOWING ? SHADOW : col;
+    ctx.lineWidth = w * (p ? .55 : 1);
+    tracePath(J(pts, seed + p * .41, amp * (p ? 1.4 : 1)), closed);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+function fill(pts, col, o = {}) {
+  const { amp = 1.6, seed = 0, alpha = 1 } = o;
+  ctx.save(); ctx.globalAlpha = alpha; ctx.fillStyle = SHADOWING ? SHADOW : col;
+  tracePath(J(pts, seed + .2, amp), true); ctx.fill(); ctx.restore();
+}
+function hatch(pts, o = {}) {
+  if (SHADOWING) return;
+  const { angle = -0.9, gap = 11, col = INK, w = 1.6, alpha = .35, seed = 0 } = o;
+  const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
+  const cx = (Math.min(...xs) + Math.max(...xs)) / 2, cy = (Math.min(...ys) + Math.max(...ys)) / 2;
+  const R = Math.hypot(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)) / 2 + 10;
+  ctx.save(); tracePath(J(pts, seed, 1.5), true); ctx.clip();
+  ctx.translate(cx, cy); ctx.rotate(angle);
+  ctx.strokeStyle = col; ctx.lineWidth = w; ctx.globalAlpha = alpha; ctx.lineCap = 'round';
+  for (let y = -R, i = 0; y < R; y += gap, i++) {
+    const a = hash2(i, BOIL + seed * 7) * 4 - 2, b = hash2(i + 99, BOIL + seed * 7) * 4 - 2;
+    ctx.beginPath(); ctx.moveTo(-R, y + a); ctx.quadraticCurveTo(0, y + (a + b), R, y + b); ctx.stroke();
+  }
+  ctx.restore();
+}
+function withShadow(fn, dx = 9, dy = 9) {
+  ctx.save(); ctx.translate(dx, dy); SHADOWING = true; fn(); SHADOWING = false; ctx.restore(); fn();
+}
+
+// shapes
+const circle = (cx, cy, r, ry = r, rot = 0) => {
+  const n = Math.max(20, Math.round(Math.max(r, ry) * .45)), out = [];
+  for (let i = 0; i < n; i++) { const a = i / n * Math.PI * 2, x = Math.cos(a) * r, y = Math.sin(a) * ry;
+    out.push([cx + x * Math.cos(rot) - y * Math.sin(rot), cy + x * Math.sin(rot) + y * Math.cos(rot)]); }
+  return out;
+};
+const rect = (x, y, w, h) => resample([[x, y], [x + w, y], [x + w, y + h], [x, y + h]], 12, true);
+const line = (x0, y0, x1, y1) => resample([[x0, y0], [x1, y1]], 10);
+const arc = (cx, cy, r, a0, a1, ry = r) => { const n = Math.max(8, Math.round(Math.abs(a1 - a0) * r / 9)), o = [];
+  for (let i = 0; i <= n; i++) { const a = lerp(a0, a1, i / n); o.push([cx + Math.cos(a) * r, cy + Math.sin(a) * ry]); } return o; };
+const roundRect = (x, y, w, h, r) => resample([
+  ...arc(x + w - r, y + r, r, -Math.PI / 2, 0), ...arc(x + w - r, y + h - r, r, 0, Math.PI / 2),
+  ...arc(x + r, y + h - r, r, Math.PI / 2, Math.PI), ...arc(x + r, y + r, r, Math.PI, Math.PI * 1.5)], 10, true);
+
+// labels: paper-tape tags, typed on
+const FONT = '700 {s}px "Courier New", ui-monospace, monospace';
+function label(text, x, y, o = {}) {
+  const { size = 40, bg = BLUE, fg = PAPER, p = 1, align = 'left', rot = -0.015, seed = 3 } = o;
+  if (p <= 0) return;
+  ctx.save(); ctx.font = FONT.replace('{s}', size);
+  const n = Math.round(text.length * clamp((p - .1) / .9)), shown = text.slice(0, n);
+  const full = ctx.measureText(text).width, padX = size * .45, h = size * 1.45;
+  const w = Math.max(size, ctx.measureText(shown).width) + padX * 2;
+  const x0 = align === 'center' ? x - (full + padX * 2) / 2 : align === 'right' ? x - w : x;
+  ctx.translate(x0 + w / 2, y); ctx.rotate(rot); ctx.translate(-(x0 + w / 2), -y);
+  const sc = easeOut(p * 3);
+  ctx.translate(x0, y); ctx.scale(1, sc); ctx.translate(-x0, -y);
+  const box = rect(x0, y - h / 2, w, h);
+  withShadow(() => fill(box, bg, { seed }), 6, 6);
+  ctx.fillStyle = fg; ctx.textBaseline = 'middle';
+  ctx.fillText(shown, x0 + padX, y + 1);
+  ctx.restore();
+}
+function note(text, x, y, o = {}) { // plain handwritten-ish ink text
+  const { size = 26, col = INK, align = 'center', alpha = 1 } = o;
+  ctx.save(); ctx.globalAlpha = alpha; ctx.font = FONT.replace('{s}', size); ctx.fillStyle = col;
+  ctx.textAlign = align; ctx.textBaseline = 'middle'; ctx.fillText(text, x, y); ctx.restore();
+}
+
+// ---------- paper ----------
+const paper = document.createElement('canvas'); paper.width = W; paper.height = H;
+(() => {
+  const p = paper.getContext('2d'), r = rng(7);
+  p.fillStyle = PAPER; p.fillRect(0, 0, W, H);
+  for (let i = 0; i < 90000; i++) { p.fillStyle = r() < .5 ? 'rgba(90,70,50,0.05)' : 'rgba(255,255,255,0.08)';
+    p.fillRect(r() * W, r() * H, 1 + r() * 1.5, 1 + r() * 1.5); }
+  p.strokeStyle = 'rgba(120,95,70,0.06)'; p.lineWidth = 1;
+  for (let i = 0; i < 260; i++) { const x = r() * W, y = r() * H, a = r() * 6.28, l = 6 + r() * 22;
+    p.beginPath(); p.moveTo(x, y); p.quadraticCurveTo(x + Math.cos(a) * l / 2 + 3, y + Math.sin(a) * l / 2, x + Math.cos(a) * l, y + Math.sin(a) * l); p.stroke(); }
+  const g = p.createRadialGradient(W / 2, H / 2, W * .35, W / 2, H / 2, W * .75);
+  g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(1, 'rgba(60,40,20,0.13)'); p.fillStyle = g; p.fillRect(0, 0, W, H);
+})();
+
+// offscreen layer for filtered (blurred / desaturated) drawing
+const layer = document.createElement('canvas'); layer.width = W; layer.height = H;
+function drawLayer(fn, filter, clip) {
+  const main = ctx, l = layer.getContext('2d');
+  l.clearRect(0, 0, W, H); ctx = l; fn(); ctx = main;
+  ctx.save(); if (clip) { ctx.beginPath(); ctx.rect(...clip); ctx.clip(); }
+  ctx.filter = filter || 'none'; ctx.drawImage(layer, 0, 0); ctx.restore();
+}
+
+// ---------- characters & props ----------
+function baby(cx, cy, r, lookX, lookY, blink = 0) {
+  const head = circle(cx, cy, r, r * .95);
+  withShadow(() => fill(head, SKIN, { seed: 1 }));
+  hatch(circle(cx - r * .55, cy + r * .25, r * .2, r * .13), { col: RED, alpha: .45, gap: 7, seed: 2 });
+  hatch(circle(cx + r * .55, cy + r * .25, r * .2, r * .13), { col: RED, alpha: .45, gap: 7, seed: 3 });
+  ink(head, { closed: true, w: 5, seed: 1 });
+  // ears
+  ink(arc(cx - r * .98, cy + r * .05, r * .16, Math.PI * .5, Math.PI * 1.5), { w: 5, seed: 4 });
+  ink(arc(cx + r * .98, cy + r * .05, r * .16, -Math.PI * .5, Math.PI * .5), { w: 5, seed: 5 });
+  // curl of hair
+  const curl = []; for (let i = 0; i <= 40; i++) { const a = -Math.PI / 2 + i / 40 * Math.PI * 2.2, rr = r * (.02 + i / 40 * .12);
+    curl.push([cx + r * .05 + Math.cos(a) * rr, cy - r * .92 + Math.sin(a) * rr]); }
+  ink(curl, { w: 5, seed: 6 });
+  for (const s of [-1, 1]) {
+    const ex = cx + s * r * .36, ey = cy - r * .08;
+    if (blink > .5) { ink(arc(ex, ey, r * .15, .15, Math.PI - .15, r * .07), { w: 5, seed: 7 + s }); continue; }
+    const eye = circle(ex, ey, r * .17, r * .19);
+    fill(eye, '#fbf8f0', { seed: 8 + s }); ink(eye, { closed: true, w: 4.5, seed: 8 + s });
+    const px = ex + lookX * r * .07, py = ey + lookY * r * .07;
+    fill(circle(px, py, r * .1), INK, { seed: 9 + s, amp: .8 });
+    fill(circle(px - r * .035, py - r * .04, r * .03), '#fbf8f0', { seed: 10 + s, amp: .3 });
+  }
+  ink(arc(cx, cy + r * .38, r * .14, .25, Math.PI - .25, r * .09), { w: 5, seed: 12 });
+}
+function bwCard(cx, cy, s, rot = 0) {
+  ctx.save(); ctx.translate(cx, cy); ctx.rotate(rot);
+  const card = roundRect(-s / 2, -s / 2, s, s, 18);
+  withShadow(() => fill(card, '#fbf8f0', { seed: 20 }), 12, 12);
+  for (let i = 5; i >= 1; i--) fill(circle(0, 0, s * .085 * i), i % 2 ? INK : '#fbf8f0', { seed: 21 + i, amp: 1.2 });
+  ink(card, { closed: true, w: 5, seed: 20 });
+  ctx.restore();
+}
+function stripes(cx, cy, w, h, n = 8) {
+  const card = rect(cx - w / 2, cy - h / 2, w, h);
+  withShadow(() => fill(card, '#fbf8f0', { seed: 40 }), 10, 10);
+  for (let i = 0; i < n; i += 2) fill(rect(cx - w / 2 + i * w / n, cy - h / 2, w / n, h), INK, { seed: 41 + i, amp: 1.2 });
+  ink(card, { closed: true, w: 5, seed: 40 });
+}
+
+// ---------- scenes ----------
+function scene1(t) { // 0-5: the hook
+  const cardX = 540 + Math.sin(t * 1.5) * 190, cardY = 330 + Math.sin(t * 3) * 14;
+  bwCard(cardX, cardY, 300, Math.sin(t * 1.5) * .08);
+  baby(540, 900, 300, (cardX - 540) / 190, -1, (t > 3.1 && t < 3.25) ? 1 : 0);
+  label('why do babies stare at', 540, 85, { align: 'center', p: prog(t, .5, 1.6) });
+  label('black & white?', 540, 155, { align: 'center', p: prog(t, 1.3, 2.2), bg: INK, rot: .012 });
+}
+
+function parentScene() { // the "real world" picture used in scene 2
+  fill(rect(130, 200, 820, 700), '#f7dfa8', { seed: 50 });
+  // window
+  fill(rect(640, 250, 250, 250), '#9fc6e6', { seed: 51 });
+  fill(circle(820, 320, 34), YELLOW, { seed: 52 });
+  ink(rect(640, 250, 250, 250), { closed: true, w: 5, seed: 51 });
+  ink(line(765, 250, 765, 500), { w: 4, seed: 53 }); ink(line(640, 375, 890, 375), { w: 4, seed: 54 });
+  // plant
+  const pot = resample([[740, 740], [880, 740], [860, 880], [760, 880]], 10, true);
+  for (let i = 0; i < 6; i++) { const a = -Math.PI / 2 + (i - 2.5) * .38, lx = 810 + Math.cos(a) * 70, ly = 700 + Math.sin(a) * 90;
+    const leaf = circle(lx, ly, 20, 50, a + Math.PI / 2); fill(leaf, '#6a9a4a', { seed: 60 + i }); ink(leaf, { closed: true, w: 3.5, seed: 60 + i }); }
+  fill(pot, '#c96f4a', { seed: 55 }); hatch(pot, { seed: 55, alpha: .25 }); ink(pot, { closed: true, w: 4.5, seed: 55 });
+  // parent
+  const shirt = resample([[200, 900], [230, 760], [330, 710], [510, 710], [610, 760], [640, 900]], 10, true);
+  fill(shirt, '#5d8fc0', { seed: 70 }); hatch(shirt, { seed: 70, alpha: .2, angle: .7 }); ink(shirt, { closed: true, w: 5, seed: 70 });
+  const neck = rect(385, 640, 70, 90); fill(neck, '#e3aa86', { seed: 71 }); ink(neck, { closed: true, w: 4, seed: 71 });
+  const head = circle(420, 520, 135, 160); fill(head, '#e8b596', { seed: 72 }); ink(head, { closed: true, w: 5, seed: 72 });
+  const hair = [...arc(420, 520, 145, Math.PI * 1.02, Math.PI * 1.98, 170), [540, 470], [430, 420], [310, 480]];
+  fill(resample(hair, 10, true), '#5b3a29', { seed: 73 }); ink(resample(hair, 10, true), { closed: true, w: 5, seed: 73 });
+  for (const s of [-1, 1]) {
+    fill(circle(420 + s * 50, 530, 11, 14), INK, { seed: 74 + s, amp: .6 });
+    ink(arc(420 + s * 50, 500, 22, Math.PI * 1.15, Math.PI * 1.85), { w: 4, seed: 76 + s });
+    hatch(circle(420 + s * 82, 590, 26, 16), { col: RED, alpha: .4, gap: 7, seed: 78 + s });
+  }
+  ink(arc(420, 585, 48, .35, Math.PI - .35, 36), { w: 5, seed: 80 });
+}
+function scene2(t) { // 5-13: what a newborn sees
+  const sx = lerp(130, 950, ease(prog(t, 7.2, 10)));
+  withShadow(() => fill(rect(130, 200, 820, 700), PAPER, { seed: 50 }), 12, 12);
+  drawLayer(parentScene, 'none', [sx, 0, W, H]);
+  drawLayer(parentScene, 'blur(16px) saturate(0.3) contrast(0.5) brightness(1.08)', [0, 0, sx, H]);
+  ink(rect(130, 200, 820, 700), { closed: true, w: 6, seed: 50 });
+  if (t > 7) { // slider
+    ink(line(sx, 180, sx, 920), { w: 6, col: RED, seed: 90 });
+    const k = circle(sx, 550, 26); fill(k, RED, { seed: 91 }); ink(k, { closed: true, w: 4, seed: 91 });
+  }
+  label('what you see', 540, 100, { align: 'center', p: prog(t, 5.3, 6.4) * (1 - prog(t, 7.2, 7.5)) });
+  label('what a newborn sees', 540, 100, { align: 'center', bg: INK, p: prog(t, 7.6, 8.8) });
+  label('~20/400 vision at birth', 540, 165, { align: 'center', bg: RED, rot: .015, size: 36, p: prog(t, 9.3, 10.4) });
+  label('sharpest at 20–30 cm: a face in your arms', 540, 975, { align: 'center', size: 32, p: prog(t, 10.6, 12) });
+}
+
+function cone(x, base, w, innerH, outerH, glow, seed) {
+  const ow = w * .56;
+  const outer = roundRect(x - ow / 2, base - innerH - outerH, ow, outerH + 8, ow / 2 - 1);
+  const inner = roundRect(x - w / 2, base - innerH, w, innerH, Math.min(w / 2 - 1, 16));
+  const c = `rgb(${lerp(231, 250, glow) | 0},${lerp(201, 226, glow) | 0},${lerp(143, 110, glow) | 0})`;
+  fill(outer, c, { seed }); hatch(outer, { seed, alpha: .22, gap: 8 }); ink(outer, { closed: true, w: 3.5, seed });
+  fill(inner, '#d9b27a', { seed: seed + .5 }); hatch(inner, { seed: seed + .5, alpha: .3, gap: 8, angle: .8 }); ink(inner, { closed: true, w: 3.5, seed: seed + .5 });
+}
+const PHOTONS = (() => { const r = rng(11), a = []; for (let i = 0; i < 90; i++) a.push({ t0: 14 + i * .08 + r() * .05, x: 15 + r() * 390 }); return a; })();
+function conePanel(t, px, cones, title, titleBg) {
+  const base = 800, top = 230;
+  withShadow(() => fill(rect(px, top - 20, 420, base - top + 50), '#efe3c9', { seed: px }), 8, 8);
+  ink(rect(px, top - 20, 420, base - top + 50), { closed: true, w: 4, seed: px });
+  ink(line(px, base, px + 420, base), { w: 5, seed: px + 1 });
+  let caught = 0; const hits = cones.map(() => 0);
+  for (const p of PHOTONS) {
+    const dt = t - p.t0; if (dt < 0) continue;
+    let ci = cones.findIndex(c => Math.abs(p.x - c.x) < c.w * .5);
+    if (ci >= 0 && cones[ci].leak && hash2(p.x * 100 | 0, 5) < cones[ci].leak) ci = -1; // short outer segment: photon not absorbed
+    const stopY = ci >= 0 ? base - cones[ci].h : base;
+    const y = top + dt * 850, hitT = (stopY - top) / 850;
+    if (dt < hitT) { // falling
+      ctx.save(); ctx.strokeStyle = YELLOW; ctx.lineWidth = 3; ctx.globalAlpha = .8;
+      ctx.beginPath(); ctx.moveTo(px + p.x, y - 40); ctx.lineTo(px + p.x, y); ctx.stroke(); ctx.restore();
+      fill(circle(px + p.x, y, 6), YELLOW, { seed: p.x, amp: .5 });
+    } else {
+      const since = dt - hitT;
+      if (ci >= 0) { caught++; hits[ci] += Math.max(0, 1 - since / .6);
+        if (since < .35) { ctx.save(); ctx.globalAlpha = 1 - since / .35; ink(circle(px + p.x, stopY, 8 + since * 90), { closed: true, w: 3, col: YELLOW, passes: 1 }); ctx.restore(); }
+      } else if (since < .5) { ctx.save(); ctx.globalAlpha = .5 * (1 - since / .5); fill(circle(px + p.x, base - 4, 5), '#9a8a70', { seed: 1 }); ctx.restore(); }
+    }
+  }
+  cones.forEach((c, i) => cone(px + c.x, base, c.w, c.inner, c.h - c.inner, clamp(hits[i]), px + i * 3));
+  label(title, px + 210, top - 60, { align: 'center', bg: titleBg, p: prog(t, 13.4, 14.2) });
+  label(`light caught: ${String(caught).padStart(2, ' ')}`, px + 210, base + 70, { align: 'center', size: 26, bg: INK, p: prog(t, 14.3, 15) });
+}
+const ADULT = Array.from({ length: 11 }, (_, i) => ({ x: 30 + i * 36, w: 30, h: 300, inner: 110 }));
+const NEWBORN = Array.from({ length: 4 }, (_, i) => ({ x: 60 + i * 100, w: 42, h: 120, inner: 78, leak: .5 }));
+function scene3(t) { // 13-24: cones
+  label('inside the eye: the cones', 540, 70, { align: 'center', bg: RED, p: prog(t, 13.1, 14) });
+  conePanel(t, 80, ADULT, 'adult', BLUE);
+  conePanel(t, 580, NEWBORN, 'newborn', BLUE);
+  label('newborn cones: 30–50% adult length, spaced apart', 540, 960, { align: 'center', size: 27, p: prog(t, 19.3, 20.8) });
+  label('→ dimmer, coarser picture (+ a brain still wiring up)', 540, 1020, { align: 'center', size: 27, bg: INK, p: prog(t, 21.2, 22.6) });
+}
+
+const LEVELS = [1, .7, .45, .25, .1];
+function mixHex(a, b, t) { const pa = [1, 3, 5].map(i => parseInt(a.substr(i, 2), 16)), pb = [1, 3, 5].map(i => parseInt(b.substr(i, 2), 16));
+  return `rgb(${pa.map((v, i) => Math.round(lerp(v, pb[i], t))).join(',')})`; }
+function scene4(t) { // 24-32: contrast
+  label('why black & white?', 540, 90, { align: 'center', bg: RED, p: prog(t, 24.2, 25) });
+  const thr = .52 * ease(prog(t, 27.2, 29.2));
+  LEVELS.forEach((c, i) => {
+    const x = 160 + i * 190, y = 380 + Math.sin(t * 2 + i) * 6, k = c <= thr ? 0 : c * (c - thr) / (1 - thr) / c;
+    const shown = c * k, pop = back(prog(t, 24.4 + i * .15, 25 + i * .15));
+    if (pop <= 0) return;
+    ctx.save(); ctx.translate(x, y); ctx.scale(pop, pop); ctx.translate(-x, -y);
+    fill(circle(x, y, 72), mixHex(PAPER, INK, shown), { seed: 100 + i });
+    ink(circle(x, y, 72), { closed: true, w: 4, seed: 100 + i, alpha: .15 + .85 * k });
+    ctx.restore();
+    note(`${Math.round(c * 100)}%`, x, 490, { alpha: pop });
+  });
+  note('contrast', 540, 540, { size: 22, alpha: prog(t, 25.3, 25.8) });
+  label('you: all five', 540, 640, { align: 'center', size: 36, p: prog(t, 25.6, 26.5) * (1 - prog(t, 27, 27.3)) });
+  label('newborn: faint ones vanish', 540, 640, { align: 'center', size: 36, bg: INK, p: prog(t, 27.4, 28.5) });
+  const sp = back(prog(t, 29.6, 30.4));
+  if (sp > 0) { ctx.save(); ctx.translate(540, 830); ctx.scale(sp, sp); ctx.translate(-540, -830); stripes(540, 830, 420, 150); ctx.restore(); }
+  label('black + white = max contrast', 540, 975, { align: 'center', size: 34, bg: RED, p: prog(t, 30.2, 31.4) });
+}
+
+function balloons(p) {
+  const cols = [[RED, 0, .45], [YELLOW, .2, .5], ['#3d6fb5', .35, .55]];
+  [[330, 400], [540, 350], [750, 410]].forEach(([x, y], i) => {
+    const [col, d, len] = cols[i], sat = clamp((p - d) / len);
+    const g = mixHex(col, '#8f8a80', 0); const gray = mixHex('#8f8a80', col.startsWith('#') ? col : '#888888', sat);
+    const yy = y + Math.sin(BOIL * .3 + i * 2) * 4;
+    const str = []; for (let k = 0; k <= 20; k++) str.push([x + Math.sin(k * .6 + i) * 8, yy + 118 + k * 12]);
+    ink(str, { w: 3, seed: 120 + i });
+    const b = circle(x, yy, 95, 115); fill(b, gray, { seed: 110 + i }); hatch(b, { seed: 110 + i, alpha: .18 }); ink(b, { closed: true, w: 5, seed: 110 + i });
+    fill(circle(x - 35, yy - 45, 16, 26, .5), 'rgba(255,255,255,0.6)', { seed: 115 + i });
+  });
+}
+function scene5(t) { // 32-38: color & sharpness fill in
+  label('the picture fills in over months', 540, 90, { align: 'center', bg: RED, p: prog(t, 32.2, 33.2) });
+  const p = ease(prog(t, 33, 37));
+  drawLayer(() => balloons(p), `blur(${lerp(14, 0, p).toFixed(1)}px)`);
+  const x0 = 150, x1 = 930, y = 800;
+  ink(line(x0, y, x1, y), { w: 5, seed: 130 });
+  ['birth', '1', '2', '3', '4', '5', '6 mo'].forEach((s, i) => { const x = lerp(x0, x1, i / 6);
+    ink(line(x, y - 14, x, y + 14), { w: 4, seed: 131 + i }); note(s, x, y + 45, { size: 24 }); });
+  const mx = lerp(x0, x1, p), tri = resample([[mx, y - 22], [mx - 18, y - 56], [mx + 18, y - 56]], 8, true);
+  fill(tri, RED, { seed: 140 }); ink(tri, { closed: true, w: 4, seed: 140 });
+  label('bold colors first · sharper by ~6 months', 540, 960, { align: 'center', size: 30, bg: INK, p: prog(t, 35.6, 36.9) });
+}
+
+function scene6(t) { // 38-42: payoff
+  bwCard(540 + Math.sin(t * 1.5) * 60, 470, 250, Math.sin(t * 1.5) * .05);
+  baby(540, 960, 250, Math.sin(t * 1.5) * .3, -1);
+  label("it's not taste.", 540, 120, { align: 'center', p: prog(t, 38.3, 39.2) });
+  label("it's contrast.", 540, 205, { align: 'center', bg: RED, size: 50, rot: .02, p: prog(t, 39.3, 40.2) });
+  note('every frame drawn in code', 1040, 1050, { size: 18, align: 'right', alpha: .55 * prog(t, 40, 40.6) });
+}
+
+const SCENES = [[0, 5, scene1], [5, 13, scene2], [13, 24, scene3], [24, 32, scene4], [32, 38, scene5], [38, 42, scene6]];
+
+function draw(frame) {
+  const t = frame / FPS;
+  BOIL = Math.floor(frame / 4);
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.filter = 'none'; ctx.globalAlpha = 1;
+  ctx.drawImage(paper, 0, 0);
+  const s = SCENES.find(([a, b]) => t >= a && t < b) || SCENES[SCENES.length - 1];
+  s[2](t);
+  // paper-colored dip between scenes
+  let dip = 0; for (const [a] of SCENES) dip = Math.max(dip, 1 - Math.abs(t - a) / .28);
+  dip = Math.max(dip, prog(t, DUR - .5, DUR));
+  if (dip > 0) { ctx.globalAlpha = clamp(dip); ctx.drawImage(paper, 0, 0); ctx.globalAlpha = 1; }
+}
+window.draw = draw; window.FRAMES = FRAMES; window.FPS = FPS;
+window.CUES = SCENES.slice(1).map(([a]) => a); // scene cuts -> soundtrack hit points
+
+// ---------- soundtrack (Web Audio, synthesized in code) ----------
+// score.js: a code-synthesized soundtrack that lives INSIDE the animation page (Web Audio API).
+// Paste it into the page's <script>, then set:
+//     window.SCORE = ac => buildScore(ac, { dur: DUR, cues: window.CUES });
+// render.mjs renders it offline (OfflineAudioContext -> WAV) and muxes it into the MP4;
+// the page's live preview plays the same score on click. No samples, no libraries.
+//
+// The music FOLLOWS THE PICTURE: a tempo map gives every scene a whole number of bars, so each cut
+// lands on a downbeat; each scene walks home to the dominant (G) so the cut arrives on the tonic (C).
+// The edit is marked by harmony, not volume. Options: bar (target bar length s, ~90 bpm = 2.67),
+// key (semitone transpose), tail (seconds of final resolving chord), gain (master level).
+function buildScore(ac, { dur, cues = [], bar = 2.67, key = 0, tail = 4, gain = .8 } = {}) {
+  const T0 = ac.currentTime + (ac instanceof OfflineAudioContext ? 0 : .05), TAU = Math.PI * 2; // live: 50ms scheduling headroom
+  const hz = m => 440 * Math.pow(2, (m + key - 69) / 12);
+  const CUES = cues.filter(c => c > 0 && c < dur).sort((a, b) => a - b);
+  const TAIL = Math.min(tail, dur / 3);
+
+  // master chain: dry + generated-impulse reverb -> compressor -> fades -> out
+  const master = ac.createGain(), comp = ac.createDynamicsCompressor(), wet = ac.createGain(), rev = ac.createConvolver();
+  comp.threshold.value = -14; comp.ratio.value = 3; wet.gain.value = .32;
+  const irLen = Math.round(ac.sampleRate * 2.2), ir = ac.createBuffer(2, irLen, ac.sampleRate);
+  for (let ch = 0; ch < 2; ch++) { // deterministic noise tail (seeded, so every render is identical)
+    const d = ir.getChannelData(ch); let s = 1234 + ch * 777;
+    for (let i = 0; i < irLen; i++) { s = (s * 1103515245 + 12345) & 0x7fffffff; d[i] = (s / 0x7fffffff * 2 - 1) * Math.pow(1 - i / irLen, 3); }
+  }
+  rev.buffer = ir;
+  const bus = ac.createGain(); bus.connect(comp); bus.connect(rev); rev.connect(wet); wet.connect(comp);
+  comp.connect(master); master.connect(ac.destination);
+  master.gain.setValueAtTime(0, T0); master.gain.linearRampToValueAtTime(gain, T0 + .3);
+  master.gain.setValueAtTime(gain, T0 + dur - 1.5); master.gain.linearRampToValueAtTime(0, T0 + dur);
+
+  // one partial: sine (or other wave) with its own attack/decay envelope
+  function partial(t, f, amp, attack, decay, pan = 0, type = 'sine', len) {
+    const o = ac.createOscillator(), g = ac.createGain(), p = ac.createStereoPanner();
+    o.type = type; o.frequency.value = f; p.pan.value = pan;
+    const s = T0 + t, end = s + (len || decay * 6);
+    g.gain.setValueAtTime(0, s); g.gain.linearRampToValueAtTime(amp, s + attack);
+    if (len) { g.gain.setValueAtTime(amp, end - decay); g.gain.linearRampToValueAtTime(0, end); }
+    else g.gain.setTargetAtTime(0, s + attack, decay);
+    o.connect(g); g.connect(p); p.connect(bus); o.start(s); o.stop(end + .05);
+  }
+  const musicBox = (t, f, a, pan) => { partial(t, f, a, .004, .9, pan); partial(t, 2 * f, a * .35, .004, .35, pan); partial(t, 4.03 * f, a * .12, .004, .12, pan); };
+  const pad = (t, f, a, len) => { partial(t, f, a * .4, .9, .9, -.2, 'sine', len); partial(t, f * 1.004, a * .4, .9, .9, .2, 'sine', len); partial(t, f * 2.002, a * .2, .9, .9, 0, 'sine', len); };
+  const bass = (t, f, a) => { partial(t, f, a, .01, 1.4); partial(t, 2 * f, a * .2, .01, 1.4); };
+  const softChime = (t, f, a, pan) => partial(t, f, a, .02, 1.4, pan); // 20ms attack: never startles
+
+  const CH = { C: [60, 64, 67], Am: [57, 60, 64], F: [53, 57, 60], G: [55, 59, 62], Dm: [50, 53, 57] };
+  const progression = bars => {
+    if (bars === 1) return ['G'];
+    const cycle = ['C', 'Am', 'F', 'G', 'C', 'Dm', 'F', 'G'];
+    const p = Array.from({ length: bars }, (_, i) => cycle[i % cycle.length]);
+    p[bars - 1] = 'G'; if (bars >= 3 && p[bars - 2] === 'G') p[bars - 2] = 'F';
+    return p;
+  };
+  const bounds = [0, ...CUES, dur - TAIL].filter((v, i, a) => i === 0 || v > a[i - 1] + .5);
+  const PATTERN = [0, 1, 2, 1, 3, 2, 1, 2]; // 8 eighth notes; 3 = root an octave up
+  for (let s = 0; s < bounds.length - 1; s++) {
+    const a = bounds[s], b = bounds[s + 1], bars = Math.max(1, Math.round((b - a) / bar)), BAR = (b - a) / bars;
+    progression(bars).forEach((name, bi) => {
+      const t0 = a + bi * BAR, ch = CH[name], onCut = s > 0 && bi === 0; // the cut is marked by the chord change alone
+      pad(t0, hz(ch[0] - 12), .05, BAR + .9);
+      pad(t0, hz(ch[2] - 12), .035, BAR + .9);
+      bass(t0, hz(ch[0] - 24), onCut ? .1 : .14);
+      PATTERN.forEach((k, i) => {
+        if (s === 0 && bi === 0 && i % 2 && bars > 1) return; // sparse opening bar (only if more bars follow)
+        musicBox(t0 + i * BAR / 8, hz((k === 3 ? ch[0] + 12 : ch[k]) + 12), .085 * (i === 0 && !onCut ? 1.15 : 1), i % 2 ? .35 : -.35);
+      });
+    });
+  }
+  CUES.forEach((c, i) => softChime(c, hz(88 + [0, 7, 4, 9, 12][i % 5]), .025, i % 2 ? .5 : -.5));
+  const end = bounds[bounds.length - 1]; // ending: resolve on C; the roll starts exactly on the boundary
+  bass(end, hz(48), .14); pad(end, hz(48), .06, TAIL);
+  [60, 64, 67, 72].forEach((m, i) => musicBox(end + i * .08, hz(m + 12), .075, (i - 1.5) * .25));
+  return bounds.map((b, i) => i && 240 / ((b - bounds[i - 1]) / Math.max(1, Math.round((b - bounds[i - 1]) / bar)))).slice(1); // bpm per scene, for sanity checks
+}
+window.SCORE = ac => buildScore(ac, { dur: DUR, cues: window.CUES });
+// render.mjs renders it offline (OfflineAudioContext -> WAV) and muxes it into the MP4;
+// the page's live preview plays the same score on click. No samples, no libraries.
+//
+// The music FOLLOWS THE PICTURE: a tempo map gives every scene a whole number of bars, so each cut
+// lands on a downbeat; each scene walks home to the dominant (G) so the cut arrives on the tonic (C).
+// The edit is marked by harmony, not volume. Options: bar (target bar length s, ~90 bpm = 2.67),
+// key (semitone transpose), tail (seconds of final resolving chord), gain (master level).
+function buildScore(ac, { dur, cues = [], bar = 2.67, key = 0, tail = 4, gain = .8 } = {}) {
+  const T0 = ac.currentTime + (ac instanceof OfflineAudioContext ? 0 : .05), TAU = Math.PI * 2; // live: 50ms scheduling headroom
+  const hz = m => 440 * Math.pow(2, (m + key - 69) / 12);
+  const CUES = cues.filter(c => c > 0 && c < dur).sort((a, b) => a - b);
+  const TAIL = Math.min(tail, dur / 3);
+
+  // master chain: dry + generated-impulse reverb -> compressor -> fades -> out
+  const master = ac.createGain(), comp = ac.createDynamicsCompressor(), wet = ac.createGain(), rev = ac.createConvolver();
+  comp.threshold.value = -14; comp.ratio.value = 3; wet.gain.value = .32;
+  const irLen = Math.round(ac.sampleRate * 2.2), ir = ac.createBuffer(2, irLen, ac.sampleRate);
+  for (let ch = 0; ch < 2; ch++) { // deterministic noise tail (seeded, so every render is identical)
+    const d = ir.getChannelData(ch); let s = 1234 + ch * 777;
+    for (let i = 0; i < irLen; i++) { s = (s * 1103515245 + 12345) & 0x7fffffff; d[i] = (s / 0x7fffffff * 2 - 1) * Math.pow(1 - i / irLen, 3); }
+  }
+  rev.buffer = ir;
+  const bus = ac.createGain(); bus.connect(comp); bus.connect(rev); rev.connect(wet); wet.connect(comp);
+  comp.connect(master); master.connect(ac.destination);
+  master.gain.setValueAtTime(0, T0); master.gain.linearRampToValueAtTime(gain, T0 + .3);
+  master.gain.setValueAtTime(gain, T0 + dur - 1.5); master.gain.linearRampToValueAtTime(0, T0 + dur);
+
+  // one partial: sine (or other wave) with its own attack/decay envelope
+  function partial(t, f, amp, attack, decay, pan = 0, type = 'sine', len) {
+    const o = ac.createOscillator(), g = ac.createGain(), p = ac.createStereoPanner();
+    o.type = type; o.frequency.value = f; p.pan.value = pan;
+    const s = T0 + t, end = s + (len || decay * 6);
+    g.gain.setValueAtTime(0, s); g.gain.linearRampToValueAtTime(amp, s + attack);
+    if (len) { g.gain.setValueAtTime(amp, end - decay); g.gain.linearRampToValueAtTime(0, end); }
+    else g.gain.setTargetAtTime(0, s + attack, decay);
+    o.connect(g); g.connect(p); p.connect(bus); o.start(s); o.stop(end + .05);
+  }
+  const musicBox = (t, f, a, pan) => { partial(t, f, a, .004, .9, pan); partial(t, 2 * f, a * .35, .004, .35, pan); partial(t, 4.03 * f, a * .12, .004, .12, pan); };
+  const pad = (t, f, a, len) => { partial(t, f, a * .4, .9, .9, -.2, 'sine', len); partial(t, f * 1.004, a * .4, .9, .9, .2, 'sine', len); partial(t, f * 2.002, a * .2, .9, .9, 0, 'sine', len); };
+  const bass = (t, f, a) => { partial(t, f, a, .01, 1.4); partial(t, 2 * f, a * .2, .01, 1.4); };
+  const softChime = (t, f, a, pan) => partial(t, f, a, .02, 1.4, pan); // 20ms attack: never startles
+
+  const CH = { C: [60, 64, 67], Am: [57, 60, 64], F: [53, 57, 60], G: [55, 59, 62], Dm: [50, 53, 57] };
+  const progression = bars => {
+    if (bars === 1) return ['G'];
+    const cycle = ['C', 'Am', 'F', 'G', 'C', 'Dm', 'F', 'G'];
+    const p = Array.from({ length: bars }, (_, i) => cycle[i % cycle.length]);
+    p[bars - 1] = 'G'; if (bars >= 3 && p[bars - 2] === 'G') p[bars - 2] = 'F';
+    return p;
+  };
+  const bounds = [0, ...CUES, dur - TAIL].filter((v, i, a) => i === 0 || v > a[i - 1] + .5);
+  const PATTERN = [0, 1, 2, 1, 3, 2, 1, 2]; // 8 eighth notes; 3 = root an octave up
+  for (let s = 0; s < bounds.length - 1; s++) {
+    const a = bounds[s], b = bounds[s + 1], bars = Math.max(1, Math.round((b - a) / bar)), BAR = (b - a) / bars;
+    progression(bars).forEach((name, bi) => {
+      const t0 = a + bi * BAR, ch = CH[name];
+      pad(t0, hz(ch[0] - 12), .05, BAR + .9);
+      pad(t0, hz(ch[2] - 12), .035, BAR + .9);
+      bass(t0, hz(ch[0] - 24), .14);
+      PATTERN.forEach((k, i) => {
+        if (s === 0 && bi === 0 && i % 2 && bars > 1) return; // sparse opening bar (only if more bars follow)
+        musicBox(t0 + i * BAR / 8, hz((k === 3 ? ch[0] + 12 : ch[k]) + 12), .085 * (i === 0 ? 1.15 : 1), i % 2 ? .35 : -.35);
+      });
+    });
+  }
+  CUES.forEach((c, i) => softChime(c, hz(88 + [0, 7, 4, 9, 12][i % 5]), .035, i % 2 ? .5 : -.5));
+  const end = bounds[bounds.length - 1]; // ending: resolve on C; the roll starts exactly on the boundary
+  bass(end, hz(48), .14); pad(end, hz(48), .06, TAIL);
+  [60, 64, 67, 72].forEach((m, i) => musicBox(end + i * .08, hz(m + 12), .075, (i - 1.5) * .25));
+  return bounds.map((b, i) => i && 240 / ((b - bounds[i - 1]) / Math.max(1, Math.round((b - bounds[i - 1]) / bar)))).slice(1); // bpm per scene, for sanity checks
+}
+window.SCORE = ac => buildScore(ac, { dur: DUR, cues: window.CUES });
+
+if (!new URLSearchParams(location.search).has('render')) {
+  let start = performance.now();
+  const loop = () => { draw(Math.floor((performance.now() - start) / 1000 * FPS) % FRAMES); requestAnimationFrame(loop); };
+  loop();
+  // browsers only allow sound after a user gesture: click restarts from 0 with the score playing
+  if (window.SCORE) addEventListener('click', () => { const ac = new AudioContext(); window.SCORE(ac); start = performance.now() + 50; }, { once: true });
+}
+</script>
+</body>
+</html>
