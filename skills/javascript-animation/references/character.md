@@ -4,7 +4,7 @@
 
 Render the character by itself in every expression and pose the storyboard needs (e.g. eyes open / asleep / smiling / crying; mouths; the 2-3 poses). Look at that one sheet and fix it there. A character problem found inside the full film costs a whole re-render per attempt; found on the sheet it costs one still.
 
-This is a self-check. Don't stop to ask the user to approve it.
+To render it alone, add a temporary first shot that draws only the character in a grid of expressions and poses, and take a still of it (`--stills 0`); remove the shot afterwards. This is a self-check. Don't stop to ask the user to approve it.
 
 Write the character as one function with options, e.g. `hero(cx, cy, r, { eyes, mouth, lookX, lookY, rot, sway })`, so every scene draws the same person.
 

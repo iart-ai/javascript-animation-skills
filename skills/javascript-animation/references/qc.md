@@ -1,6 +1,6 @@
 # Self-check before delivering
 
-Scripts first (they must pass): `asset-audit` CLEAN, `layout-check` CLEAN, `sync-check` passing. Then the two passes by eye below.
+Scripts first: `asset-audit` CLEAN, `layout-check` CLEAN, `sync-check` passing (a remaining STARTLE is acceptable only on a deliberate stinger you can name). Then the two passes by eye below.
 
 The agent runs this; the user never sees it. Open the contact sheet (`render.mjs page.html sheet.jpg --sheet 1`; it steps off scene cuts so dip frames don't look like blank ones) and go down the list. Fix, render stills of the changed frames, and check again.
 

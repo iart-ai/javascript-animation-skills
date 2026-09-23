@@ -6,7 +6,8 @@
 //
 // The music FOLLOWS THE PICTURE: a tempo map gives every scene a whole number of bars, so each cut
 // lands on a downbeat; each scene walks home to the dominant (G) so the cut arrives on the tonic (C).
-// The edit is marked by harmony, not volume. Options: bar (target bar length s, ~90 bpm = 2.67),
+// The edit is marked by harmony, not volume. A scene only one bar long is just the dominant (G) leading
+// into the next cut; for many short scenes, lower `bar` so each gets two or more bars. Options: bar (target bar length s, ~90 bpm = 2.67),
 // key (semitone transpose), tail (seconds of final resolving chord), gain (master level), chime (a faint bell on each cut).
 function buildScore(ac, { dur, cues = [], bar = 2.67, key = 0, tail = 4, gain = .8, chime = false } = {}) {
   const T0 = ac.currentTime + (ac instanceof OfflineAudioContext ? 0 : .05), TAU = Math.PI * 2; // live: 50ms scheduling headroom

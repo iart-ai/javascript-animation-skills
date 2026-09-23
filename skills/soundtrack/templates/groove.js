@@ -10,6 +10,7 @@
 // kit:      the instrument set, chosen per piece: 'electro' | 'acoustic' | 'keys' | 'percussion'
 // harmony:  a mood from HARMONY below, or your own chords (one per bar, MIDI notes); key: semitone transpose.
 // Choose kit, harmony, key and bpm for THIS piece; don't reuse the last piece's choices.
+// sfxGain: level of the sound effects against the music (lower it if effects drown the downbeats).
 // Layering rule learned the hard way: bring layers in one or two per bar. Kick + bass entering
 // together after a quiet intro jumped +11 dB and read as a startle; staggered, it was +3.5 dB.
 const HARMONY = {
@@ -20,13 +21,13 @@ const HARMONY = {
   folk:    [[62, 66, 69], [67, 71, 74], [62, 66, 69], [57, 61, 64]],          // I IV I V in D: warm, open
   blues:   [[60, 64, 67, 70], [65, 69, 72, 75], [60, 64, 67, 70], [67, 71, 74, 77]], // dominant 7ths: cheeky, swaggering
 };
-function buildGroove(ac, { dur, bpm = 120, sections, events = [], kit = 'electro', harmony = 'wistful', key = 0, gain = .9 } = {}) {
+function buildGroove(ac, { dur, bpm = 120, sections, events = [], kit = 'electro', harmony = 'wistful', key = 0, gain = .9, sfxGain = .9 } = {}) {
   const chords = (Array.isArray(harmony) ? harmony : HARMONY[harmony]).map(c => c.map(m => m + key));
   const T0 = ac.currentTime + (ac instanceof OfflineAudioContext ? 0 : .05), BEAT = 60 / bpm;
   const hz = m => 440 * Math.pow(2, (m - 69) / 12);
   const out = ac.createDynamicsCompressor(); out.threshold.value = -12; out.ratio.value = 3; out.connect(ac.destination);
   const master = ac.createGain(); master.gain.value = gain; master.connect(out);
-  const M = ac.createGain(), X = ac.createGain(); M.connect(master); X.connect(master); X.gain.value = .9;
+  const M = ac.createGain(), X = ac.createGain(); M.connect(master); X.connect(master); X.gain.value = sfxGain;
   const rev = ac.createConvolver(), wet = ac.createGain(); wet.gain.value = .22; rev.connect(wet); wet.connect(master); M.connect(rev); X.connect(rev);
   { const n = Math.round(ac.sampleRate * 1.6), ir = ac.createBuffer(2, n, ac.sampleRate);          // seeded room: identical every render
     for (let c = 0; c < 2; c++) { const d = ir.getChannelData(c); let s = 99 + c; for (let i = 0; i < n; i++) { s = (s * 1103515245 + 12345) & 0x7fffffff; d[i] = (s / 0x7fffffff * 2 - 1) * Math.pow(1 - i / n, 3); } } rev.buffer = ir; }

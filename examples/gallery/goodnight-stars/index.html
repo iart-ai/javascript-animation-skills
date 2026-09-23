@@ -1,0 +1,624 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Goodnight, Stars</title>
+<style>
+  html,body{margin:0;background:#1a1c3d;display:grid;place-items:center;height:100vh}
+  canvas{width:min(100vw,100vh);height:auto;max-height:100vh}
+</style>
+</head>
+<body>
+<canvas id="c" width="1080" height="1080"></canvas>
+<script>
+// "Goodnight, Stars": the moon tucks three little stars into a cloud bed. 20 s, for a 2-year-old.
+// draw(frame) is a pure function of the frame number.
+const W = 1080, H = 1080, FPS = 30, DUR = 20, FRAMES = FPS * DUR;
+const cv = document.getElementById('c');
+cv.width = W; cv.height = H;
+let ctx = cv.getContext('2d');
+
+// LOOK (picture book, night): one warm lead (the moon), soft lavender bedding on a deep indigo sky.
+const NIGHT = '#272B5B', MOON = '#F7E9B0', STAR = '#FFC857', CLOUD = '#E6E1F4', BLANKET = '#A99BD8',
+      FACE = '#4A3B52', SHADOW = 'rgba(10,10,40,0.25)';
+const PAPER = NIGHT, INK = FACE, BLUE = BLANKET;   // names the library expects
+const LOOK = {
+  ground: 'grain',   // soft grain over the sky, like a printed board book
+  wobble: .6,        // gentle hand-drawn edge, never scratchy
+  boil: 4,
+  font: '700 {s}px ui-rounded, "SF Pro Rounded", "Arial Rounded MT Bold", "Nunito", sans-serif',
+  labelStyle: 'plain',
+  guideColor: CLOUD,
+};
+
+// ---------- math ----------
+const clamp = (x, a = 0, b = 1) => Math.max(a, Math.min(b, x));
+const lerp = (a, b, t) => a + (b - a) * t;
+const ease = t => { t = clamp(t); return t < .5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2; };
+const easeOut = t => 1 - Math.pow(1 - clamp(t), 3);
+const back = t => { t = clamp(t); const c = 1.7; return 1 + (c + 1) * Math.pow(t - 1, 3) + c * Math.pow(t - 1, 2); };
+const prog = (t, a, b) => clamp((t - a) / (b - a));
+
+function hash2(a, b) {
+  let n = Math.imul(a | 0, 374761393) + Math.imul(b | 0, 668265263);
+  n = Math.imul(n ^ (n >>> 13), 1274126177);
+  return ((n ^ (n >>> 16)) >>> 0) / 4294967295;
+}
+function vnoise(x, y) {
+  const xi = Math.floor(x), yi = Math.floor(y), xf = x - xi, yf = y - yi;
+  const u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf);
+  return lerp(lerp(hash2(xi, yi), hash2(xi + 1, yi), u), lerp(hash2(xi, yi + 1), hash2(xi + 1, yi + 1), u), v);
+}
+function rng(seed) { let a = seed | 0; return () => { a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+
+// ---------- hand-drawn primitives ----------
+let BOIL = 0;          // changes every 4 frames -> "line boil"
+let SHADOWING = false; // when true, primitives paint the drop shadow color
+
+function jit(x, y, seed, amp) {
+  const s = seed * 13.37;
+  return [
+    x + (vnoise(x * .012 + s, y * .012) - .5) * 2 * amp + (vnoise(x * .09 + s, y * .09 + 7) - .5) * amp * .6,
+    y + (vnoise(x * .012, y * .012 + s + 50) - .5) * 2 * amp + (vnoise(x * .09 + 3, y * .09 + s) - .5) * amp * .6,
+  ];
+}
+function resample(pts, step = 9, closed = false) {
+  const out = [], P = closed ? [...pts, pts[0]] : pts;
+  for (let i = 0; i < P.length - 1; i++) {
+    const [x0, y0] = P[i], [x1, y1] = P[i + 1], n = Math.max(1, Math.ceil(Math.hypot(x1 - x0, y1 - y0) / step));
+    for (let k = 0; k < n; k++) out.push([lerp(x0, x1, k / n), lerp(y0, y1, k / n)]);
+  }
+  if (!closed) out.push(P[P.length - 1]);
+  return out;
+}
+function tracePath(pts, closed) {
+  ctx.beginPath();
+  if (pts.length < 3) { ctx.moveTo(...pts[0]); pts.slice(1).forEach(p => ctx.lineTo(...p)); if (closed) ctx.closePath(); return; }
+  const P = closed ? [...pts, pts[0], pts[1]] : pts;
+  ctx.moveTo(...(closed ? [(P[0][0] + P[1][0]) / 2, (P[0][1] + P[1][1]) / 2] : P[0]));
+  for (let i = 1; i < P.length - 1; i++) ctx.quadraticCurveTo(P[i][0], P[i][1], (P[i][0] + P[i + 1][0]) / 2, (P[i][1] + P[i + 1][1]) / 2);
+  if (!closed) ctx.lineTo(...P[P.length - 1]); else ctx.closePath();
+}
+const J = (pts, seed, amp) => pts.map(([x, y]) => jit(x, y, BOIL + seed, amp * LOOK.wobble));
+
+function ink(pts, o = {}) {
+  const { w = 4, col = INK, closed = false, amp = 2, seed = 0, passes = 2, alpha = 1 } = o;
+  ctx.save(); ctx.lineCap = ctx.lineJoin = 'round';
+  for (let p = 0; p < passes; p++) {
+    ctx.globalAlpha = alpha * (p ? .45 : 1);
+    ctx.strokeStyle = SHADOWING ? SHADOW : col;
+    ctx.lineWidth = w * (p ? .55 : 1);
+    tracePath(J(pts, seed + p * .41, amp * (p ? 1.4 : 1)), closed);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+function fill(pts, col, o = {}) {
+  const { amp = 1.6, seed = 0, alpha = 1 } = o;
+  ctx.save(); ctx.globalAlpha = alpha; ctx.fillStyle = SHADOWING ? SHADOW : col;
+  tracePath(J(pts, seed + .2, amp), true); ctx.fill(); ctx.restore();
+}
+function hatch(pts, o = {}) {
+  if (SHADOWING) return;
+  const { angle = -0.9, gap = 11, col = INK, w = 1.6, alpha = .35, seed = 0 } = o;
+  const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
+  const cx = (Math.min(...xs) + Math.max(...xs)) / 2, cy = (Math.min(...ys) + Math.max(...ys)) / 2;
+  const R = Math.hypot(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)) / 2 + 10;
+  ctx.save(); tracePath(J(pts, seed, 1.5), true); ctx.clip();
+  ctx.translate(cx, cy); ctx.rotate(angle);
+  ctx.strokeStyle = col; ctx.lineWidth = w; ctx.globalAlpha = alpha; ctx.lineCap = 'round';
+  for (let y = -R, i = 0; y < R; y += gap, i++) {
+    const a = hash2(i, BOIL + seed * 7) * 4 - 2, b = hash2(i + 99, BOIL + seed * 7) * 4 - 2;
+    ctx.beginPath(); ctx.moveTo(-R, y + a); ctx.quadraticCurveTo(0, y + (a + b), R, y + b); ctx.stroke();
+  }
+  ctx.restore();
+}
+function withShadow(fn, dx = 9, dy = 9) {
+  ctx.save(); ctx.translate(dx, dy); SHADOWING = true; fn(); SHADOWING = false; ctx.restore(); fn();
+}
+
+// shapes
+const circle = (cx, cy, r, ry = r, rot = 0) => {
+  const n = Math.max(20, Math.round(Math.max(r, ry) * .45)), out = [];
+  for (let i = 0; i < n; i++) { const a = i / n * Math.PI * 2, x = Math.cos(a) * r, y = Math.sin(a) * ry;
+    out.push([cx + x * Math.cos(rot) - y * Math.sin(rot), cy + x * Math.sin(rot) + y * Math.cos(rot)]); }
+  return out;
+};
+const rect = (x, y, w, h) => resample([[x, y], [x + w, y], [x + w, y + h], [x, y + h]], 12, true);
+const line = (x0, y0, x1, y1) => resample([[x0, y0], [x1, y1]], 10);
+const arc = (cx, cy, r, a0, a1, ry = r) => { const n = Math.max(8, Math.round(Math.abs(a1 - a0) * r / 9)), o = [];
+  for (let i = 0; i <= n; i++) { const a = lerp(a0, a1, i / n); o.push([cx + Math.cos(a) * r, cy + Math.sin(a) * ry]); } return o; };
+const roundRect = (x, y, w, h, r) => resample([
+  ...arc(x + w - r, y + r, r, -Math.PI / 2, 0), ...arc(x + w - r, y + h - r, r, 0, Math.PI / 2),
+  ...arc(x + r, y + h - r, r, Math.PI / 2, Math.PI), ...arc(x + r, y + r, r, Math.PI, Math.PI * 1.5)], 10, true);
+
+// labels, typed on; their look comes from LOOK.labelStyle and LOOK.font
+const FONT = LOOK.font;
+function label(text, x, y, o = {}) {
+  const { size = 40, bg = BLUE, fg = PAPER, p = 1, align = 'left', rot = LOOK.labelStyle === 'tag' ? -0.015 : 0, seed = 3, style = LOOK.labelStyle } = o;
+  if (p <= 0) return;
+  ctx.save(); ctx.font = FONT.replace('{s}', size);
+  const n = Math.round(text.length * clamp((p - .1) / .9)), shown = text.slice(0, n);
+  const full = ctx.measureText(text).width, padX = size * .45, h = size * 1.45;
+  const w = Math.max(size, ctx.measureText(shown).width) + padX * 2;
+  const x0 = align === 'center' ? x - (full + padX * 2) / 2 : align === 'right' ? x - w : x;
+  ctx.translate(x0 + w / 2, y); ctx.rotate(rot); ctx.translate(-(x0 + w / 2), -y);
+  const sc = easeOut(p * 3);
+  ctx.translate(x0, y); ctx.scale(1, sc); ctx.translate(-x0, -y);
+  if (style === 'tag') { const box = rect(x0, y - h / 2, w, h); withShadow(() => fill(box, bg, { seed }), 6, 6); }
+  else if (style === 'pill') { ctx.fillStyle = bg; ctx.beginPath(); ctx.roundRect(x0, y - h / 2, w, h, h / 2); ctx.fill(); }
+  else if (style === 'underline') { ctx.fillStyle = bg; ctx.fillRect(x0 + padX, y + size * .55, w - padX * 2, Math.max(2, size * .08)); }
+  ctx.fillStyle = style === 'plain' || style === 'underline' ? (o.fg || INK) : fg; ctx.textBaseline = 'middle';
+  ctx.fillText(shown, x0 + padX, y + 1);
+  ctx.restore();
+}
+function note(text, x, y, o = {}) { // plain handwritten-ish ink text
+  const { size = 26, col = INK, align = 'center', alpha = 1 } = o;
+  ctx.save(); ctx.globalAlpha = alpha; ctx.font = FONT.replace('{s}', size); ctx.fillStyle = col;
+  ctx.textAlign = align; ctx.textBaseline = 'middle'; ctx.fillText(text, x, y); ctx.restore();
+}
+
+
+// reveal a stroke progressively (0..1): hand-drawing a line onto the page
+function drawOn(pts, p, o = {}) {
+  const n = Math.max(2, Math.round(pts.length * clamp(p)));
+  if (p > 0) ink(pts.slice(0, n), o);
+}
+
+// ---------- illustration primitives (a second look; use these OR the ink ones, per concept) ----------
+// Picture-book shapes: outline in a darker tint of the fill (not black), inner shade, brush texture.
+const rgbOf = h => [1, 3, 5].map(i => parseInt(h.substr(i, 2), 16));
+const tint = (h, k) => `rgb(${rgbOf(h).map(v => Math.round(k < 1 ? v * k : v + (255 - v) * (k - 1))).join(',')})`; // k<1 darker, k>1 toward white
+const bbox = pts => { const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]); return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)]; };
+function shape(pts, col, o = {}) {
+  const { line = tint(col, .6), lw = 3.5, seed = 0, tex = true, shade = true, shadow = false, alpha = 1 } = o;
+  if (shadow) { ctx.save(); ctx.translate(8, 10); fill(pts, 'rgba(90,60,40,.12)', { seed, amp: 1 }); ctx.restore(); }
+  fill(pts, col, { seed, amp: 1, alpha });
+  if (tex || shade) {
+    const [x0, y0, x1, y1] = bbox(pts), bw = x1 - x0, bh = y1 - y0;
+    ctx.save(); tracePath(J(pts, seed + .2, 1), true); ctx.clip(); ctx.globalAlpha = alpha;
+    if (shade) { // darker rim toward bottom-right: fill dark, then the shape again nudged up-left
+      ctx.fillStyle = tint(col, .8); ctx.fillRect(x0 - 5, y0 - 5, bw + 10, bh + 10);
+      ctx.translate(-bw * .07, -bh * .09); fill(pts, col, { seed, amp: 1 }); ctx.translate(bw * .07, bh * .09);
+    }
+    if (tex) { // a few translucent lighter brush strokes
+      const r = rng((Math.abs(seed * 97) | 0) + 1); ctx.lineCap = 'round'; ctx.strokeStyle = tint(col, 1.35);
+      for (let i = 0; i < 10; i++) { ctx.globalAlpha = .1 + r() * .1; ctx.lineWidth = 6 + r() * 10; const y = y0 + r() * bh, x = x0 + r() * bw * .5;
+        ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + bw * (.2 + r() * .4), y - bh * .1 * r()); ctx.stroke(); }
+    }
+    ctx.restore();
+  }
+  if (lw) ink(pts, { closed: true, w: lw, col: line, seed, amp: 1, passes: 1, alpha });
+}
+function blush(x, y, rx, ry, a = .5) { // soft radial cheek / glow
+  ctx.save(); ctx.translate(x, y); ctx.scale(1, ry / rx); // gradient is built in the transformed space
+  const g = ctx.createRadialGradient(0, 0, 0, 0, 0, rx);
+  g.addColorStop(0, `rgba(236,130,115,${a})`); g.addColorStop(1, 'rgba(236,130,115,0)');
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0, 0, rx, 0, 7); ctx.fill(); ctx.restore();
+}
+
+// ---------- flat / blueprint primitives (the "cinematic flat" look; no outlines, value does the work) ----------
+function flatMass(pts, col, o = {}) {           // a flat shape with a shadow side, no outline
+  const { alpha = 1, shade = .18 } = o;
+  ctx.save(); ctx.globalAlpha = alpha; ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(...pts[0]); for (const p of pts.slice(1)) ctx.lineTo(...p); ctx.closePath(); ctx.fill();
+  if (shade) { const [x0, y0, x1, y1] = bbox(pts); ctx.clip(); ctx.fillStyle = `rgba(10,12,30,${shade})`; ctx.fillRect(x0 + (x1 - x0) * .7, y0, (x1 - x0) * .32, y1 - y0); }
+  ctx.restore();
+}
+function guide(pts, t0, t, o = {}) {            // dashed construction line that fades as the real thing fills in
+  const a = (o.alpha ?? .7) * (1 - prog(t, t0 + .25, t0 + .6)); if (a <= 0) return;
+  ctx.save(); ctx.globalAlpha = a; ctx.strokeStyle = o.col || LOOK.guideColor; ctx.lineWidth = 1.4 * PX; ctx.setLineDash([6 * PX, 5 * PX]);
+  ctx.beginPath(); ctx.moveTo(...pts[0]); for (const p of pts.slice(1)) ctx.lineTo(...p); if (o.closed !== false) ctx.closePath(); ctx.stroke(); ctx.restore();
+}
+function glow(x, y, r, rgb, a) {                 // soft light: rgb as [r, g, b]
+  ctx.save(); const g = ctx.createRadialGradient(x, y, 0, x, y, r); g.addColorStop(0, `rgba(${rgb},${a})`); g.addColorStop(1, `rgba(${rgb},0)`); ctx.fillStyle = g; ctx.fillRect(x - r, y - r, 2 * r, 2 * r); ctx.restore();
+}
+
+// ---------- one world, many cameras ----------
+let PX = 1;                                      // world units per screen pixel under the current camera: multiply line widths by it
+function withCamera(cam, fn) {                   // cam = { cx, cy, k }: world point at the screen centre, and zoom
+  ctx.save(); ctx.translate(W / 2, H / 2); ctx.scale(cam.k, cam.k); ctx.translate(-cam.cx, -cam.cy); const px = PX; PX = 1 / cam.k;
+  fn(); PX = px; ctx.restore();
+}
+
+// ---------- layout registry: claim what must not collide (read by scripts/layout-check.mjs) ----------
+let LAYOUT = [];
+function claim(id, kind, x, y, w, h) {           // kind: 'text' | 'keep'; box in the current transform
+  const m = ctx.getTransform(), P = [[x, y], [x + w, y], [x, y + h], [x + w, y + h]].map(([a, c]) => [m.a * a + m.c * c + m.e, m.b * a + m.d * c + m.f]);
+  const xs = P.map(p => p[0]), ys = P.map(p => p[1]); LAYOUT.push({ id, kind, x: Math.min(...xs), y: Math.min(...ys), w: Math.max(...xs) - Math.min(...xs), h: Math.max(...ys) - Math.min(...ys) });
+}
+function placeFree(w, h, candidates) {           // first candidate box [x, y] that overlaps nothing claimed so far this frame
+  const free = ([x, y]) => LAYOUT.every(o => x + w <= o.x || o.x + o.w <= x || y + h <= o.y || o.y + o.h <= y);
+  return candidates.find(free) || candidates[0];
+}
+
+// ---------- paper ----------
+const paper = document.createElement('canvas'); paper.width = W; paper.height = H;
+(() => {
+  const p = paper.getContext('2d'), r = rng(7);
+  p.fillStyle = PAPER; p.fillRect(0, 0, W, H);
+  if (LOOK.ground === 'flat') return;
+  for (let i = 0; i < 90000; i++) { p.fillStyle = r() < .5 ? 'rgba(90,70,50,0.05)' : 'rgba(255,255,255,0.08)';
+    p.fillRect(r() * W, r() * H, 1 + r() * 1.5, 1 + r() * 1.5); }
+  if (LOOK.ground === 'grain') return;
+  p.strokeStyle = 'rgba(120,95,70,0.06)'; p.lineWidth = 1;
+  for (let i = 0; i < 260; i++) { const x = r() * W, y = r() * H, a = r() * 6.28, l = 6 + r() * 22;
+    p.beginPath(); p.moveTo(x, y); p.quadraticCurveTo(x + Math.cos(a) * l / 2 + 3, y + Math.sin(a) * l / 2, x + Math.cos(a) * l, y + Math.sin(a) * l); p.stroke(); }
+  const g = p.createRadialGradient(W / 2, H / 2, W * .35, W / 2, H / 2, W * .75);
+  g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(1, 'rgba(60,40,20,0.13)'); p.fillStyle = g; p.fillRect(0, 0, W, H);
+})();
+
+// offscreen layer for filtered (blurred / desaturated) drawing
+const layer = document.createElement('canvas'); layer.width = W; layer.height = H;
+function drawLayer(fn, filter, clip) {
+  const main = ctx, l = layer.getContext('2d');
+  l.clearRect(0, 0, W, H); ctx = l; fn(); ctx = main;
+  ctx.save(); if (clip) { ctx.beginPath(); ctx.rect(...clip); ctx.clip(); }
+  ctx.filter = filter || 'none'; ctx.drawImage(layer, 0, 0); ctx.restore();
+}
+
+// ---------- storyboard: the single source of truth ----------
+// Lullaby: 72 bpm, steady texture, 4 long shots, every cut on a bar downbeat.
+const BPM = 72, BEAT = 60 / BPM, b = n => n * BEAT;                    // 1 bar = 4 beats = 3.33 s; 6 bars = 20 s
+const SECTIONS = [[0, 1, ['padSoft']], [1, 7, ['padSoft', 'pluck']]];  // no drums: pad, then soft keys enter
+const SHOTS = [
+  // 1 wide, slow push: the moon drifts in from the left; the stars hop on their cloud bed, wide awake
+  { from: 0, to: b(8), cam: t => ({ cx: 40, cy: -40, k: lerp(1.0, 1.1, ease(prog(t, 0, b(8)))) }) },
+  // 2 medium: the moon's hand pulls the cloud blanket up; two stars close their eyes
+  { from: b(8), to: b(12), cam: t => ({ cx: lerp(40, 70, prog(t, b(8), b(12))), cy: 40, k: lerp(1.3, 1.38, prog(t, b(8), b(12))) }) },
+  // 3 close-up: the smallest star is still peeking; the moon blows it a kiss; it sleeps
+  { from: b(12), to: b(16), cam: t => ({ cx: 245, cy: -45, k: lerp(1.8, 1.9, prog(t, b(12), b(16))) }) },
+  // 4 pull out to wide: everyone asleep, the moon yawns and sleeps too; "Goodnight, stars."
+  { from: b(16), to: DUR, cam: t => { const p = ease(prog(t, b(16), b(19.5))); return { cx: lerp(200, 90, p), cy: lerp(-60, -30, p), k: lerp(1.5, 1.0, p) }; } },
+];
+// blocking
+const STARS = [ { x: -80, y: 52, R: 74, hop: b(5), sleep: b(10), tilt: -.14 },
+                { x: 95, y: 48, R: 80, hop: b(6), sleep: b(11), tilt: .1 },
+                { x: 268, y: 62, R: 56, hop: b(7), sleep: b(14), tilt: .16 } ];
+const BED = { x0: -230, x1: 410, top: 118, bot: 300 };
+const BLANKET_PULL = [b(9), b(10)], KISS = b(13), HEART_LAND = b(13.8);
+const YAWN = [b(17), b(18.4)], MOON_SLEEP = b(19), TITLE = b(20);
+const EVENTS = [
+  [b(5), 'popLow', 0], [b(6), 'popLow', 1], [b(7), 'popLow', 2],   // hops
+  [b(9), 'swish'],                                                  // blanket pulled up
+  [b(10), 'ding'], [b(11), 'ding'],                                 // two stars fall asleep
+  [KISS, 'pop'], [b(14), 'ding'],                                   // the kiss, the last star sleeps
+  [YAWN[0], 'whooshOut'],                                           // the moon's yawn
+  [b(8), 'ding'], [b(12), 'ding'], [b(16), 'ding'], [b(16), 'ding'],   // a soft bell on each cut (on the downbeat); doubled on the last cut
+];
+
+// ---------- characters ----------
+const MR = 150;                                                     // moon radius
+const rot2 = (x, y, a) => [x * Math.cos(a) - y * Math.sin(a), x * Math.sin(a) + y * Math.cos(a)];
+const mouthOf = (m) => { const [dx, dy] = rot2(MR * .06, MR * .44, m.rot); return [m.x + dx, m.y + dy]; };
+const shoulderOf = (m) => { const [dx, dy] = rot2(MR * .72, MR * .55, m.rot); return [m.x + dx, m.y + dy]; };
+
+function eye(x, y, s, state, lookX = 0, lid = MOON) {                          // state: open | sleepy | closed
+  if (state === 'closed') { ink(arc(x, y - s * .2, s * .95, .25, Math.PI - .25), { w: s * .42, col: FACE, amp: .4, passes: 1 }); return; }
+  ctx.save(); ctx.fillStyle = FACE; ctx.beginPath(); ctx.ellipse(x + lookX * s * .3, y, s * .78, s, 0, 0, 7); ctx.fill();
+  ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(x + lookX * s * .3 - s * .28, y - s * .38, s * .3, 0, 7); ctx.fill();
+  ctx.restore();
+  if (state === 'sleepy') { // heavy lid: a moon-coloured cap over the top half
+    ctx.save(); ctx.fillStyle = lid; ctx.fillRect(x - s * 1.2, y - s * 1.3, s * 2.4, s * 1.25); ctx.restore();
+    ink(line(x - s * 1.05, y - s * .05, x + s * 1.05, y - s * .05), { w: s * .35, col: FACE, amp: .3, passes: 1 });
+  }
+}
+function mouth(x, y, s, kind) {                                    // smile | kiss | yawn | o
+  if (kind === 'smile') ink(arc(x, y - s * .55, s, .45, Math.PI - .45), { w: s * .32, col: FACE, amp: .4, passes: 1 });
+  else if (kind === 'kiss') { ctx.save(); ctx.strokeStyle = '#c96a7a'; ctx.lineWidth = s * .3; ctx.beginPath(); ctx.ellipse(x, y, s * .32, s * .4, 0, 0, 7); ctx.stroke(); ctx.restore(); }
+  else { const o = kind === 'yawn' ? 1 : .45; ctx.save(); ctx.fillStyle = '#7a4a5e'; ctx.beginPath(); ctx.ellipse(x, y + s * .2 * o, s * .55 * (.7 + .3 * o), s * .75 * o, 0, 0, 7); ctx.fill();
+    ctx.fillStyle = '#e48a98'; ctx.beginPath(); ctx.ellipse(x, y + s * .55 * o, s * .3, s * .22 * o, 0, 0, 7); ctx.fill(); ctx.restore(); }
+}
+
+// the moon: round, cream, sleepy face, a floppy blue nightcap with a pom-pom
+function capPts(r) {
+  const brim = arc(0, -r * .02, r * 1.0, Math.PI * 1.13, Math.PI * 1.87).reverse();   // along the head, right to left
+  const up = [[-r * .93, -r * .42], [-r * .75, -r * .95], [-r * .35, -r * 1.3], [r * .2, -r * 1.42], [r * .7, -r * 1.3],
+              [r * 1.05, -r * 1.0], [r * 1.22, -r * .7], [r * 1.12, -r * .62], [r * .92, -r * .78], [r * .93, -r * .42]];
+  return resample([...up, ...brim.slice(1, -1)], 10, true);
+}
+function moon(m) {
+  const { x, y, rot = 0, eyes = 'open', mouthK = 'smile', reach = 0, hand = null, glowA = .35 } = m;
+  glow(x, y, MR * 2.2, [255, 236, 170], glowA);
+  // reaching arm (behind the body): shoulder -> hand
+  const sh = shoulderOf(m);
+  ctx.save(); ctx.translate(x, y); ctx.rotate(rot);
+  shape(circle(0, 0, MR), MOON, { seed: 11, lw: 4 });
+  // craters, soft
+  [[-.45, .15, .16], [.42, .3, .1], [-.1, .62, .08], [.55, -.05, .07]].forEach(([cx, cy, cr], i) =>
+    fill(circle(cx * MR, cy * MR, cr * MR), tint(MOON, .9), { seed: 20 + i, amp: .8 }));
+  blush(-MR * .5, MR * .28, MR * .2, MR * .13, .45); blush(MR * .52, MR * .28, MR * .2, MR * .13, .45);
+  eye(-MR * .3, MR * .05, MR * .1, eyes); eye(MR * .32, MR * .05, MR * .1, eyes);
+  mouth(MR * .06, MR * .44, MR * .17, mouthK);
+  // nightcap
+  const cp = capPts(MR);
+  shape(cp, '#7E9BD6', { seed: 31, lw: 4 });
+  ink(arc(0, -MR * .02, MR * 1.0, Math.PI * 1.15, Math.PI * 1.85), { w: 18, col: '#C9D6F2', amp: .5, passes: 1 });   // cap band
+  [[-.5, -.85], [.05, -1.12], [.5, -1.05], [-.2, -.62]].forEach(([dx, dy], i) => fill(circle(dx * MR, dy * MR, 7), '#C9D6F2', { seed: 40 + i, amp: .5 }));
+  shape(circle(MR * 1.2, -MR * .6, MR * .15), '#FFFFFF', { seed: 44, lw: 3, line: '#b9bfd8', tex: false });
+  // left mitt, resting against the cheek side
+  shape(circle(-MR * .86, MR * .55, MR * .15, MR * .12, -.4), MOON, { seed: 46, lw: 3.5, tex: false });
+  ctx.restore();
+  if (!(reach > 0 && hand)) shape(circle(sh[0], sh[1], MR * .15, MR * .12, .3), MOON, { seed: 47, lw: 3.5, tex: false });
+  claim('moon', 'keep', x - MR, y - MR, MR * 2, MR * 2);
+}
+
+function moonArm(m) {                                               // the reaching arm + mitt, drawn in front of the bed
+  if (!(m.reach > 0 && m.hand)) return;
+  const sh = shoulderOf(m), hand = m.hand, c = [lerp(sh[0], hand[0], .5) + 70, lerp(sh[1], hand[1], .5) - 20], arm = [];
+  for (let k = 0; k <= 16; k++) { const u = k / 16; arm.push([(1 - u) * (1 - u) * sh[0] + 2 * u * (1 - u) * c[0] + u * u * hand[0], (1 - u) * (1 - u) * sh[1] + 2 * u * (1 - u) * c[1] + u * u * hand[1]]); }
+  ink(arm, { w: 40, col: tint(MOON, .72), amp: .5, passes: 1 });
+  ink(arm, { w: 31, col: MOON, amp: .5, passes: 1 });
+  shape(circle(hand[0], hand[1], MR * .17, MR * .14, .3), MOON, { seed: 47, lw: 3.5, tex: false });
+}
+function starPts(cx, cy, R, a = 0) {
+  const pts = [];
+  for (let i = 0; i < 10; i++) { const r = i % 2 ? R * .56 : R, t = -Math.PI / 2 + a + i * Math.PI / 5; pts.push([cx + Math.cos(t) * r, cy + Math.sin(t) * r]); }
+  return resample(pts, 8, true);
+}
+function star(s) {                                                  // s: { x, y, R, a, eyes, mouthK, glowA, blushA }
+  const { x, y, R, a = 0, eyes = 'open', mouthK = 'smile', glowA = .4, blushA = .5, lookX = 0 } = s;
+  glow(x, y, R * 2.3, [255, 205, 100], glowA);
+  ctx.save(); ctx.translate(x, y); ctx.rotate(a);
+  shape(starPts(0, 0, R), STAR, { seed: Math.round(R), lw: 3.5 });
+  blush(-R * .36, R * .2, R * .17, R * .11, blushA); blush(R * .36, R * .2, R * .17, R * .11, blushA);
+  eye(-R * .2, R * .0, R * .085, eyes, lookX, STAR); eye(R * .2, R * .0, R * .085, eyes, lookX, STAR);
+  mouth(0, R * .22, R * .13, mouthK);
+  ctx.restore();
+  claim('star' + R, 'keep', x - R * .8, y - R * .8, R * 1.6, R * 1.6);
+}
+
+function heart(x, y, s, a = 1) {
+  ctx.save(); ctx.globalAlpha = a; ctx.translate(x, y); ctx.scale(s / 20, s / 20); ctx.fillStyle = '#F29BAE';
+  ctx.beginPath(); ctx.moveTo(0, 6); ctx.bezierCurveTo(-16, -6, -8, -20, 0, -10); ctx.bezierCurveTo(8, -20, 16, -6, 0, 6); ctx.fill(); ctx.restore();
+}
+
+function puff(circles, col, o = {}) {
+  const { line = tint(col, .72), lw = 4, shadow = false } = o;
+  const disc = (x, y, r, c) => fill(circle(x, y, r), c, { seed: Math.round(x + y), amp: .7 });
+  if (shadow) circles.forEach(([x, y, r]) => disc(x + 8, y + 12, r, 'rgba(10,10,40,.25)'));
+  circles.forEach(([x, y, r]) => disc(x, y, r + lw, line));
+  circles.forEach(([x, y, r]) => disc(x, y, r, tint(col, .88)));
+  circles.forEach(([x, y, r]) => disc(x - r * .12, y - r * .16, r * .86, col));
+}
+const bedPuffs = (() => { const out = [], n = 7, w = (BED.x1 - BED.x0) / n;
+  for (let i = 0; i < n; i++) out.push([BED.x0 + w * (i + .5), BED.top + w * .45 + (i % 2) * 8, w * .62]);
+  for (let i = 0; i < n - 1; i++) out.push([BED.x0 + w * (i + 1), BED.bot - w * .5, w * .6]);
+  out.push([BED.x0 + w * .2, BED.bot - w * .75, w * .55], [BED.x1 - w * .2, BED.bot - w * .75, w * .55]);
+  for (let i = 0; i < n - 2; i++) out.push([BED.x0 + w * (i + 1.5), (BED.top + BED.bot) / 2 + 10, w * .75]);
+  return out; })();
+// cloud outline: bumpy top, rounded ends, flat-ish bottom
+function cloudPts(x0, x1, top, bot, n, seed = 1) {
+  const r = rng(seed), out = [], w = (x1 - x0) / n;
+  for (let i = 0; i < n; i++) {
+    const cx = x0 + w * (i + .5), rad = w * (.62 + r() * .12), cy = top + rad * .8;
+    out.push(...arc(cx, cy, rad, Math.PI * (i === 0 ? .85 : 1.08), Math.PI * (i === n - 1 ? 2.15 : 1.92)));
+  }
+  out.push([x1 - 10, bot - 10], [x1 - 40, bot], [x0 + 40, bot], [x0 + 10, bot - 10]);
+  return resample(out, 10, true);
+}
+
+// ---------- blocking tracks over global time ----------
+function moonAt(t) {
+  const bob = Math.sin(t * 1.4) * 8;
+  const home = [-330, -150], kissAt = [215, -215], sky = [90, -330];
+  let [x, y] = home, rot = Math.sin(t * .9) * .04;
+  const inP = easeOut(prog(t, b(.5), b(4.2)));
+  x = lerp(-980, home[0], inP);
+  const toKiss = ease(prog(t, b(10.6), b(12.4))), toSky = ease(prog(t, b(14.4), b(17.8)));
+  x = lerp(x, kissAt[0], toKiss); y = lerp(y, kissAt[1], toKiss); rot += lerp(0, -.32, toKiss);
+  x = lerp(x, sky[0], toSky); y = lerp(y, sky[1], toSky); rot = lerp(rot, Math.sin(t * .9) * .03, toSky);
+  y += bob * (1 - prog(t, b(18), b(19.5)) * .6);
+  let eyes = 'open', mouthK = 'smile';
+  if (t > KISS - b(.4) && t < KISS + b(.9)) mouthK = 'kiss';
+  if (t > YAWN[0] && t < YAWN[1]) { mouthK = 'yawn'; eyes = 'closed'; }
+  if (t >= YAWN[1] && t < YAWN[1] + .3) eyes = 'open';
+  if (t >= MOON_SLEEP) { eyes = 'closed'; mouthK = 'smile'; }
+  // reach: grab the folded blanket, pull it up with it, let go
+  const reach = prog(t, b(8.2), b(8.9)) * (1 - prog(t, b(10.1), b(10.6)));
+  const m = { x, y, rot, eyes, mouthK, reach, glowA: lerp(.35, .22, prog(t, MOON_SLEEP, DUR)) };
+  const sh = shoulderOf(m);
+  m.hand = [lerp(sh[0], BED.x0 + 40, easeOut(reach)), lerp(sh[1], blanketTop(t) + 8, easeOut(reach))];
+  return m;
+}
+const blanketTop = t => lerp(196, 104, ease(prog(t, ...BLANKET_PULL)));
+
+function starAt(i, t) {
+  const S = STARS[i], sleepP = ease(prog(t, S.sleep, S.sleep + .6));
+  const hopP = prog(t, S.hop, S.hop + .45), hop = hopP > 0 && hopP < 1 ? Math.sin(hopP * Math.PI) * 55 : 0;
+  const breathe = Math.sin(t * 1.6 + i * 2) * 3 * (sleepP > 0 ? 1 : 0);
+  const wiggle = t < BLANKET_PULL[0] ? Math.sin(t * 3 + i * 1.7) * .06 : 0;
+  let eyes = t >= S.sleep || (t > S.sleep - .75 && t < S.sleep - .5) ? 'closed' : 'open';
+  let mouthK = 'smile', lookX = 0;
+  if (i === 2 && t > b(11) && t < KISS) { lookX = -Math.sin(t * 2) * .8; }            // the little one peeks around
+  if (i === 2 && t > KISS && t < HEART_LAND + .1) lookX = -.6;
+  return { x: S.x, y: S.y - hop + breathe, R: S.R, a: wiggle + S.tilt * sleepP, eyes, mouthK, lookX,
+           glowA: lerp(.42, .2, sleepP) + (sleepP ? Math.sin(t * 1.6 + i * 2) * .04 : 0),
+           blushA: .5 + (i === 2 ? .4 * prog(t, HEART_LAND, HEART_LAND + .3) * (1 - prog(t, b(15), b(16))) : 0) };
+}
+
+// ---------- the world ----------
+const BG = (() => { const r = rng(5), a = []; for (let i = 0; i < 90; i++) a.push([r() * 2600 - 1300, r() * 1500 - 950, 1 + r() * 2.2, r() * 6.28]); return a; })();
+function world(t) {
+  // tiny far stars, slowly twinkling
+  const dim = 1 - .35 * prog(t, MOON_SLEEP, DUR);
+  for (const [x, y, s, ph] of BG) { if (y > 60) continue; const a = (.35 + .35 * Math.sin(t * 1.3 + ph)) * dim;
+    ctx.save(); ctx.globalAlpha = a; ctx.fillStyle = '#FFF4D6'; ctx.beginPath(); ctx.arc(x, y, s * PX * 1.1, 0, 7); ctx.fill(); ctx.restore(); }
+  // a soft far cloud bank
+  fill(cloudPts(-1300, 1500, 250, 900, 9, 3), '#353A72', { seed: 2, amp: 1 });
+  // the bed: pillow, stars, bed body, blanket
+  const m = moonAt(t), moonBehind = t < b(10.6) || t > b(14.4);
+  if (moonBehind) moon(m);
+  STARS.forEach((_, i) => star(starAt(i, t)));
+  puff(bedPuffs, CLOUD, { shadow: true });                                                                // the cloud bed
+  // blanket: lavender, a white hem at the top, little dots; its top edge is pulled up by the moon
+  const top = blanketTop(t), bl = [];
+  for (let k = 0; k <= 20; k++) { const x = lerp(BED.x0 + 30, BED.x1 - 30, k / 20); bl.push([x, top + Math.sin(k * .9 + t * .8) * 4]); }
+  bl.push([BED.x1 - 22, lerp(top, BED.bot - 30, .5)], [BED.x1 - 40, BED.bot - 30], ...arc((BED.x0 + BED.x1) / 2, BED.bot - 50, (BED.x1 - BED.x0) / 2 - 40, .1, Math.PI - .1, 22), [BED.x0 + 40, BED.bot - 30], [BED.x0 + 22, lerp(top, BED.bot - 30, .5)]);
+  const blP = resample(bl, 10, true);
+  shape(blP, BLANKET, { seed: 8, lw: 3.5, shade: false });
+  ctx.save(); tracePath(blP, true); ctx.clip();
+  for (let k = 0; k < 26; k++) { const x = BED.x0 + 50 + (k % 9) * 70 + (Math.floor(k / 9) % 2) * 35, y = top + 45 + Math.floor(k / 9) * 48;
+    fill(starPts(x, y, 9, .2), '#D9D0F2', { seed: 60 + k, amp: .4 }); }
+  ctx.restore();
+  ink(bl.slice(0, 21).map(([x, y]) => [x, y + 12]), { w: 16, col: '#EDE8FA', amp: .5, passes: 1 });   // hem
+  if (!moonBehind) moon(m);
+  moonArm(m);
+  // the kiss: a little heart floats from the moon's lips to the smallest star's cheek
+  if (t > KISS && t < HEART_LAND + .5) {
+    const p = ease(prog(t, KISS, HEART_LAND)), [mx, my] = mouthOf(m), S = starAt(2, t);
+    const tx = S.x - S.R * .32, ty = S.y + S.R * .12;
+    heart(lerp(mx, tx, p), lerp(my + 20, ty, p) - Math.sin(p * Math.PI) * 40, 46 - 12 * p, 1 - prog(t, HEART_LAND, HEART_LAND + .5));
+  }
+}
+
+function sky(t) {
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, 'rgba(22,24,58,.75)'); g.addColorStop(1, 'rgba(58,56,112,.35)');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+}
+
+function draw(frame) {
+  const t = frame / FPS;
+  BOIL = LOOK.boil ? Math.floor(frame / LOOK.boil) : 0; LAYOUT = [];
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.filter = 'none'; ctx.globalAlpha = 1;
+  ctx.drawImage(paper, 0, 0); sky(t);
+  const shot = SHOTS.find(s => t >= s.from && t < s.to) || SHOTS[SHOTS.length - 1];
+  withCamera(shot.cam(t), () => world(t));
+  // the night settles
+  ctx.fillStyle = `rgba(12,12,40,${.22 * prog(t, MOON_SLEEP, DUR)})`; ctx.fillRect(0, 0, W, H);
+  if (t > TITLE) {
+    const p = prog(t, TITLE, TITLE + 1.2);
+    note('Goodnight, stars.', W / 2, 985, { size: 64, col: MOON, alpha: ease(p) });
+    claim('title', 'text', W / 2 - 280, 945, 560, 80);
+  }
+  window.LAYOUT = LAYOUT;
+}
+window.draw = draw; window.FRAMES = FRAMES; window.FPS = FPS;
+window.CUES = SHOTS.slice(1).map(s => s.from);
+
+// ---------- soundtrack ----------
+// groove.js: a beat-grid score with sections, a break, and a synthesized sound for every action.
+// Paste into the page's <script> (before the live-preview block), then:
+//   window.SCORE = ac => buildGroove(ac, { dur: DUR, bpm: BPM, sections: SECTIONS, events: EVENTS });
+// The picture reads the same BPM / SECTIONS / EVENTS, so sound and image can't drift apart.
+//
+// sections: [[fromBar, toBar, layers], ...]  layers from:
+//   'pad' 'padSoft' 'kick2' 'kick4' 'hat8' 'hat16' 'clap' 'bassHalf' 'bass8' 'lead' 'pluck' 'crash'
+//   A section with [] layers is a break: silence (the SFX still play).
+// events:   [[seconds, sfxName, arg?], ...]  sfxName from the FX table below.
+// kit:      the instrument set, chosen per piece: 'electro' | 'acoustic' | 'keys' | 'percussion'
+// harmony:  a mood from HARMONY below, or your own chords (one per bar, MIDI notes); key: semitone transpose.
+// Choose kit, harmony, key and bpm for THIS piece; don't reuse the last piece's choices.
+// Layering rule learned the hard way: bring layers in one or two per bar. Kick + bass entering
+// together after a quiet intro jumped +11 dB and read as a startle; staggered, it was +3.5 dB.
+const HARMONY = {
+  bright:  [[60, 64, 67], [65, 69, 72], [67, 71, 74], [60, 64, 67]],          // I IV V I: plain, sunny
+  wistful: [[57, 60, 64], [53, 57, 60], [48, 52, 55], [55, 59, 62]],          // vi IV I V: pop, bittersweet
+  dreamy:  [[60, 64, 67, 71], [62, 66, 69, 72], [60, 64, 67, 71], [55, 59, 62, 66]], // lydian maj7 colour: floating, wonder
+  tense:   [[57, 60, 64], [53, 57, 60], [52, 56, 59], [57, 60, 64]],          // harmonic minor, i VI V i: suspense, mystery
+  folk:    [[62, 66, 69], [67, 71, 74], [62, 66, 69], [57, 61, 64]],          // I IV I V in D: warm, open
+  blues:   [[60, 64, 67, 70], [65, 69, 72, 75], [60, 64, 67, 70], [67, 71, 74, 77]], // dominant 7ths: cheeky, swaggering
+};
+function buildGroove(ac, { dur, bpm = 120, sections, events = [], kit = 'electro', harmony = 'wistful', key = 0, gain = .9 } = {}) {
+  const chords = (Array.isArray(harmony) ? harmony : HARMONY[harmony]).map(c => c.map(m => m + key));
+  const T0 = ac.currentTime + (ac instanceof OfflineAudioContext ? 0 : .05), BEAT = 60 / bpm;
+  const hz = m => 440 * Math.pow(2, (m - 69) / 12);
+  const out = ac.createDynamicsCompressor(); out.threshold.value = -12; out.ratio.value = 3; out.connect(ac.destination);
+  const master = ac.createGain(); master.gain.value = gain; master.connect(out);
+  const M = ac.createGain(), X = ac.createGain(); M.connect(master); X.connect(master); X.gain.value = .3;   // lullaby: action sounds sit under the music
+  const rev = ac.createConvolver(), wet = ac.createGain(); wet.gain.value = .22; rev.connect(wet); wet.connect(master); M.connect(rev); X.connect(rev);
+  { const n = Math.round(ac.sampleRate * 1.6), ir = ac.createBuffer(2, n, ac.sampleRate);          // seeded room: identical every render
+    for (let c = 0; c < 2; c++) { const d = ir.getChannelData(c); let s = 99 + c; for (let i = 0; i < n; i++) { s = (s * 1103515245 + 12345) & 0x7fffffff; d[i] = (s / 0x7fffffff * 2 - 1) * Math.pow(1 - i / n, 3); } } rev.buffer = ir; }
+  const noise = (() => { const n = ac.sampleRate, buf = ac.createBuffer(1, n, n), d = buf.getChannelData(0); let s = 7; for (let i = 0; i < n; i++) { s = (s * 1103515245 + 12345) & 0x7fffffff; d[i] = s / 0x7fffffff * 2 - 1; } return buf; })();
+  const env = (g, t, a, peak, decay) => { g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(peak, t + a); g.gain.setTargetAtTime(0, t + a, decay); };
+  function osc(bus, t, type, f, peak, a, decay, f2, glide = .05, pan = 0) {
+    const o = ac.createOscillator(), g = ac.createGain(), p = ac.createStereoPanner(); o.type = type; o.frequency.setValueAtTime(f, t);
+    if (f2) o.frequency.exponentialRampToValueAtTime(f2, t + glide); p.pan.value = pan; env(g, t, a, peak, decay); o.connect(g); g.connect(p); p.connect(bus); o.start(t); o.stop(t + a + decay * 7);
+  }
+  function hiss(bus, t, type, f, q, peak, a, decay, f2, glide = .1, pan = 0) {
+    const s = ac.createBufferSource(), fl = ac.createBiquadFilter(), g = ac.createGain(), p = ac.createStereoPanner(); s.buffer = noise;
+    fl.type = type; fl.frequency.setValueAtTime(f, t); if (f2) fl.frequency.exponentialRampToValueAtTime(f2, t + glide); fl.Q.value = q; p.pan.value = pan;
+    env(g, t, a, peak, decay); s.connect(fl); fl.connect(g); g.connect(p); p.connect(bus); s.start(t, (t * 7.3) % .5); s.stop(t + a + decay * 7);
+  }
+  // instruments, per kit (same roles, different voices)
+  const soft = { electro: 1, acoustic: .7, keys: .45, percussion: .8 }[kit];
+  const kick = (t, a = .9) => kit === 'percussion' ? osc(M, t, 'sine', 130, a * .6, .002, .14, 90, .12)                       // low tom
+    : osc(M, t, 'sine', kit === 'electro' ? 150 : 110, a * soft, .002, kit === 'electro' ? .12 : .09, kit === 'electro' ? 42 : 55, .1);
+  const clap = (t, v = 1) => kit === 'electro' ? (hiss(M, t, 'bandpass', 1500, .9, .5 * v, .002, .06), hiss(M, t + .012, 'bandpass', 1700, .9, .35 * v, .002, .08))
+    : kit === 'acoustic' ? (hiss(M, t, 'bandpass', 1100, 3, .35 * v, .001, .02), osc(M, t, 'triangle', 420, .15 * v, .001, .03))              // rimshot
+    : kit === 'keys' ? hiss(M, t, 'lowpass', 3000, .7, .18 * v, .01, .12)                                                            // brush
+    : (osc(M, t, 'sine', 900, .3 * v, .001, .03), osc(M, t, 'sine', 1400, .15 * v, .001, .02));                                     // woodblock
+  const hat = (t, a = .12) => kit === 'electro' ? hiss(M, t, 'highpass', 7500, .7, a, .001, .025, null, 0, .3)
+    : hiss(M, t, 'bandpass', 6000, 1.2, a * (kit === 'keys' ? .4 : .7), .01, .045, null, 0, .3);                                    // shaker
+  const crash = t => hiss(M, t, 'highpass', 5000, .5, .35 * soft, .002, .6);
+  const bass = (t, m, len) => { const o = ac.createOscillator(), f = ac.createBiquadFilter(), g = ac.createGain();
+    o.type = kit === 'electro' ? 'sawtooth' : kit === 'acoustic' ? 'triangle' : 'sine'; o.frequency.value = hz(m);
+    f.type = 'lowpass'; f.frequency.value = kit === 'electro' ? 520 : 900; const pk = kit === 'percussion' ? .3 : .22;
+    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(pk, t + .01); g.gain.setTargetAtTime(0, t + (kit === 'percussion' ? .05 : len * .7), kit === 'percussion' ? .08 : .05);
+    o.connect(f); f.connect(g); g.connect(M); o.start(t); o.stop(t + len + .4); };
+  const pluck = (t, m, a = .12, pan = 0) => {
+    if (kit === 'keys') { osc(M, t, 'sine', hz(m), a * 1.1, .004, .5, null, 0, pan); osc(M, t, 'sine', hz(m) * 2.01, a * .35, .002, .18, null, 0, pan); osc(M, t, 'sine', hz(m) * 3.98, a * .12, .001, .06, null, 0, pan); return; }   // electric piano
+    if (kit === 'percussion') { osc(M, t, 'sine', hz(m), a * 1.2, .001, .12, null, 0, pan); osc(M, t, 'sine', hz(m) * 4, a * .3, .001, .03, null, 0, pan); return; }                                  // marimba
+    osc(M, t, 'triangle', hz(m), a, .003, kit === 'acoustic' ? .32 : .18, null, 0, pan); osc(M, t, 'sine', hz(m + 12), a * .3, .003, .08, null, 0, pan); };                                             // pluck / nylon
+  const pad = (t, notes, len, a = .045) => notes.forEach((m, i) => { const o = ac.createOscillator(), g = ac.createGain(), f = ac.createBiquadFilter();
+    o.type = kit === 'keys' ? 'sawtooth' : 'sine'; o.frequency.value = hz(m); o.detune.value = (i - 1) * (kit === 'keys' ? 9 : 6);           // keys: a string section
+    f.type = 'lowpass'; f.frequency.value = kit === 'keys' ? 1400 : 8000; const pk = kit === 'keys' ? a * .5 : a, at = kit === 'keys' ? .7 : .4;
+    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(pk, t + at); g.gain.setValueAtTime(pk, t + len - .3); g.gain.linearRampToValueAtTime(0, t + len + .2);
+    o.connect(f); f.connect(g); g.connect(M); o.start(t); o.stop(t + len + .3); });
+  const bars = Math.ceil(dur / (4 * BEAT)); let prevL = [];
+  for (let bar = 0; bar < bars; bar++) {
+    const sec = sections.find(([a, e]) => bar >= a && bar < e); if (!sec) { prevL = []; continue; }
+    const L = sec[2], t0 = T0 + bar * 4 * BEAT, ch = chords[bar % chords.length], first = bar === sec[0];
+    // a drum layer's first bar comes in at half strength, so it arrives instead of jumping out
+    const fresh = n => L.includes(n) && !prevL.includes(n) && bar > 0, kv = (fresh('kick4') || fresh('kick2')) && !prevL.some(x => x.startsWith('kick')) ? .5 : 1, cv = fresh('clap') ? .6 : 1;
+    if (L.includes('pad')) pad(t0, ch.map(m => m + 12), 4 * BEAT); if (L.includes('padSoft')) pad(t0, ch.map(m => m + 12), 4 * BEAT, .035);
+    if (L.includes('crash') && first) crash(t0);
+    for (let s = 0; s < 16; s++) { const t = t0 + s * BEAT / 4, on = s % 4 === 0, beat = s / 4;
+      if (L.includes('kick4') && on) kick(t, .9 * kv); if (L.includes('kick2') && (s === 0 || s === 8)) kick(t, .6 * kv);
+      if (L.includes('clap') && (s === 4 || s === 12)) clap(t, cv);
+      if (L.includes('hat8') && s % 2 === 0 && !on) hat(t); if (L.includes('hat16') && !on) hat(t, s % 2 ? .07 : .12);
+      if (L.includes('bassHalf') && (s === 0 || s === 8)) bass(t, ch[0] - 24, 2 * BEAT);
+      if (L.includes('bass8') && s % 2 === 0) bass(t, ch[0] - 24 + (s % 8 === 6 ? 12 : 0), BEAT / 2);
+      if (L.includes('lead')) pluck(t, [ch[0], ch[1], ch[2], ch[1] + 12][s % 4] + 12, .07, s % 2 ? .3 : -.3);
+      if (L.includes('pluck') && on) pluck(t, [ch[2], ch[1], ch[0], ch[1]][beat] + 12, .1);
+    }
+    prevL = L;
+  }
+  // sound effects: one per visible action
+  const FX = {
+    click: t => hiss(X, t, 'highpass', 3000, .7, .09, .001, .012), clack: t => { hiss(X, t, 'bandpass', 2200, 1, .25, .001, .03); osc(X, t, 'sine', 120, .25, .002, .05); },
+    switch: t => hiss(X, t, 'bandpass', 3000, 2, .2, .001, .015),
+    whooshIn: t => hiss(X, t, 'bandpass', 300, 1.2, .3, .35, .25, 3500, .45), whooshOut: t => hiss(X, t, 'bandpass', 3500, 1.2, .25, .3, .25, 300, .45),
+    whoosh: t => hiss(X, t, 'bandpass', 500, 1, .22, .15, .15, 2500, .3),
+    boing: t => { osc(X, t, 'sine', 520, .3, .005, .18, 180, .25); osc(X, t + .02, 'sine', 260, .15, .005, .12); },
+    clank: t => { osc(X, t, 'triangle', 880, .22, .001, .06); osc(X, t, 'triangle', 1318, .12, .001, .05); hiss(X, t, 'bandpass', 4000, 3, .15, .001, .02); },
+    ding: t => { osc(X, t, 'sine', 1568, .22, .002, .35); osc(X, t, 'sine', 2349, .08, .002, .2); },
+    pop: t => osc(X, t, 'sine', 500, .28, .002, .06, 900, .05), popLow: (t, i = 0) => osc(X, t, 'sine', 220 + i * 40, .3, .002, .08, 420 + i * 60, .06, i % 2 ? .4 : -.4),
+    tick: t => { hiss(X, t, 'bandpass', 2600, 4, .22, .001, .02); osc(X, t, 'triangle', 620, .12, .001, .03, 300, .04); },
+    swish: t => hiss(X, t, 'bandpass', 1200, 2, .18, .03, .08, 2500, .12), thud: t => { osc(X, t, 'sine', 110, .5, .002, .12, 40, .12); hiss(X, t, 'lowpass', 400, 1, .2, .002, .06); },
+    clonk: t => { osc(X, t, 'triangle', 330, .25, .001, .07); osc(X, t, 'triangle', 495, .12, .001, .05); },
+    creak: t => osc(X, t, 'sawtooth', 90, .05, .02, .12, 70, .2),
+    blip: (t, i = 0) => osc(X, t, 'square', 880 + i * 110, .06, .002, .04, null, 0, (i - 2.5) * .15),
+    zip: (t, i = 0) => osc(X, t, 'sawtooth', 200 + i * 45, .06, .004, .08, 700 + i * 90, .12, i % 2 ? .3 : -.3),
+    flag: t => { hiss(X, t, 'bandpass', 1800, 1.5, .2, .01, .06); osc(X, t + .05, 'sine', 1319, .2, .002, .3); osc(X, t + .12, 'sine', 1760, .2, .002, .4); },
+    alarm: t => { osc(X, t, 'square', 1760, .07, .002, .05); osc(X, t + .12, 'square', 1760, .07, .002, .05); },
+    step: t => { osc(X, t, 'sine', 140, .12, .002, .04, 90, .04); hiss(X, t, 'lowpass', 800, 1, .05, .002, .02); },
+    notify: t => { osc(X, t, 'sine', 1319, .25, .002, .25); osc(X, t + .1, 'sine', 1976, .22, .002, .35); },
+    drip: t => osc(X, t, 'sine', 1400, .18, .002, .08, 700, .08),
+  };
+  for (const [t, name, arg] of events) { if (!FX[name]) throw new Error(`groove: unknown sfx "${name}"`); FX[name](T0 + t, arg); }
+  master.gain.setValueAtTime(gain, T0 + dur - 1); master.gain.linearRampToValueAtTime(0, T0 + dur);
+}
+window.SCORE = ac => buildGroove(ac, { dur: DUR, bpm: BPM, sections: SECTIONS, events: EVENTS, kit: 'keys', harmony: 'dreamy', key: -5, gain: .8 });
+
+// live preview when opened directly in a browser (render.mjs loads the page with ?render)
+if (!new URLSearchParams(location.search).has('render')) {
+  let start = performance.now();
+  const loop = () => { draw(Math.floor((performance.now() - start) / 1000 * FPS) % FRAMES); requestAnimationFrame(loop); };
+  loop();
+  // browsers only allow sound after a user gesture: click restarts from 0 with the score playing
+  addEventListener('click', () => { if (!window.SCORE) return; const ac = new AudioContext(); window.SCORE(ac); start = performance.now() + 50; }, { once: true });
+}
+</script>
+</body>
+</html>

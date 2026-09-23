@@ -6,6 +6,12 @@
 
 *"I only asked you to fix one line" ([source](./examples/i-only-asked-you-to-fix-one-line)): an agent turns a one-line typo fix into a new city overnight. No images, no fonts to load, no libraries: one 81 KB HTML file, and every note and sound effect is synthesized by the same file with Web Audio. A second example, ["What a newborn sees"](./examples/what-a-newborn-sees), is a 42-second explainer.*
 
+## Gallery: made by an agent from one prompt
+
+![Three films made by an agent from one prompt each: a cat-vs-vacuum comedy, a toddler's bedtime story, a compound-interest explainer](./examples/gallery/gallery.gif)
+
+Each of these was made by a fresh agent working only from this pack's skill docs and a one-line request, with no human edits: a comedy, a bedtime story for a two-year-old, and a money explainer, each with its own look and its own synthesized soundtrack. [See the gallery](./examples/gallery).
+
 ## Install
 
 ```bash
@@ -27,7 +33,7 @@ The skills run in Claude Code, Cursor, Codex, and 40+ agents. The full agent run
 | Skill | What it does |
 |-------|--------------|
 | [javascript-animation](./skills/javascript-animation) | Short animated films computed on an HTML canvas: stories, explainers, loops, picture books from your photos. A drawing library (hand-drawn ink, picture-book illustration, spot-color print, single-line engraving, words as shapes, marker fills), a seek-and-render harness to MP4, contact sheets, and a zero-asset audit. |
-| [soundtrack](./skills/soundtrack) | Music written in code with Web Audio, living inside the same page and rendered offline to WAV. A tempo map lands every scene cut on a downbeat, marked by harmony rather than volume. A sync check fails the render if a cut misses the beat or the music jumps loud enough to startle. Also works with AI-generated or your own music. |
+| [soundtrack](./skills/soundtrack) | Music written in code with Web Audio, living inside the same page and rendered offline to WAV. Four instrument kits (electro, acoustic, keys, percussion) and several harmonic moods, chosen per piece. A tempo map lands every scene cut on a downbeat, marked by harmony rather than volume. A sync check fails the render if a cut misses the beat or the music jumps loud enough to startle. Also works with AI-generated or your own music. |
 
 ## How it works
 

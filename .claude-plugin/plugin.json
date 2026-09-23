@@ -1,6 +1,6 @@
 {
   "name": "javascript-animation-skills",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Every frame drawn in JavaScript: hand-drawn canvas animation with zero image assets, rendered to MP4, with a code-synthesized Web Audio soundtrack and an A/V sync check.",
   "author": {
     "name": "iart.ai",

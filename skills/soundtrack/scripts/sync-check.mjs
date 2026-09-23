@@ -49,12 +49,16 @@ const onsets = [];
 for (let i = 1; i < flux.length - 1; i++) {
   const win = flux.slice(Math.max(0, i - 50), i + 50), mean = win.reduce((a, b) => a + b) / win.length;
   if (flux[i] > mean * 3 && flux[i] >= flux[i - 1] && flux[i] >= flux[i + 1] && flux[i] > .002) {
-    if (!onsets.length || i / 100 - onsets.at(-1).t > .12) onsets.push({ t: i / 100, s: flux[i] });
+    // one onset per 120 ms cluster, measured from the cluster's first peak (so it can't drift), placed at its strongest peak
+    const last = onsets.at(-1);
+    if (!last || i / 100 - last.start > .12) onsets.push({ start: i / 100, t: i / 100, s: flux[i] }); else if (flux[i] > last.s) { last.t = i / 100; last.s = flux[i]; }
   }
 }
 // "strong" = prominent among its neighbours (within ±2 s), so a quiet ending keeps its accents
-const strong = onsets.filter(o => { const nb = onsets.filter(p => Math.abs(p.t - o.t) <= 2).map(p => p.s).sort((a, b) => a - b);
-  return o.s >= nb[Math.floor(nb.length * .6)]; }).map(o => o.t);
+// "strong" = not a minor wobble among its neighbours within ±1 s (a loud effect a second away doesn't
+// hide a downbeat, and quiet passages keep their accents)
+const strong = onsets.filter(o => { const nb = onsets.filter(p => Math.abs(p.t - o.t) <= 1).map(p => p.s).sort((a, b) => a - b);
+  return o.s >= nb[Math.floor(nb.length * .3)]; }).map(o => o.t);
 
 // ---- report ----
 console.log(`${file}: ${nF} frames @ ${FPS.toFixed(2)}fps, ${onsets.length} audio onsets (${strong.length} strong)\n`);
@@ -68,12 +72,14 @@ for (const v of events) {
   const near = strong.reduce((b, t) => Math.abs(t - v.t) < Math.abs(b - v.t) ? t : b, Infinity), off = near - v.t;
   // a cut should be heard, not jumped at: >6 dB louder than the music before it reads as a startle.
   // After a deliberate silence (a break), compare with the level before the break instead.
-  // reference = the louder of the last second and the typical level of the last 4 s (median of 1 s windows),
-  // so music returning after a short break isn't a startle, but a long quiet passage still is
-  const before = rms(v.t - 1, v.t), wins = [1, 2, 3, 4].map(k => rms(v.t - k, v.t - k + 1)).sort((a, b) => a - b);
-  const ref = Math.max(before, (wins[1] + wins[2]) / 2);
+  // reference level: normally the last second (or the typical level of the last 4 s, if louder).
+  // Coming out of a break (the last second >10 dB below the loudest recent second), compare with the
+  // music before the break instead, so a return after silence isn't a startle but a long quiet stretch
+  // followed by something loud still is.
+  const before = rms(v.t - 1, v.t), wins = [1, 2, 3, 4].map(k => rms(v.t - k, v.t - k + 1)), loud = Math.max(...wins), srt = [...wins].sort((a, b) => a - b);
+  const ref = 20 * Math.log10(before / loud) < -10 ? loud : Math.max(before, (srt[1] + srt[2]) / 2);
   const jump = 20 * Math.log10(rms(v.t, v.t + .3) / ref), startle = jump > 6;
-  const drop = 20 * Math.log10(rms(v.t + .05, v.t + .45) / before) < -15;   // a cut into silence lands by stopping
+  const drop = 20 * Math.log10(rms(v.t + .05, v.t + .45) / before) < -10;   // a cut into (near) silence lands by stopping; reverb tails keep it above true silence
   const onBeat = Math.abs(off) <= TOL || drop;
   const ok = onBeat && !startle; if (!ok) bad++;
   console.log(`${v.kind.padEnd(9)} ${v.t.toFixed(2).padStart(6)}s    ${near.toFixed(2).padStart(6)}s           ${(off >= 0 ? '+' : '') + (off * 1000).toFixed(0).padStart(5)}ms   ${(jump >= 0 ? '+' : '') + jump.toFixed(1).padStart(4)} dB       ${startle ? 'STARTLE' : drop ? 'ok (break)' : onBeat ? 'ok' : 'OFF-BEAT'}`);

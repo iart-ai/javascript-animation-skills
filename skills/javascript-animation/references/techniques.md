@@ -14,7 +14,6 @@ Techniques, not presets. Each one is a way of making marks; the palette, scale a
 | 6. Marker / gouache fill | Renders correctly as a still; not yet used in a full film |
 | 7. Cinematic flat + blueprint | Used across a full film (the "fix one line" example) |
 
-The table above is about how tested the code is, not which style to prefer.
 
 ## Derive the look
 
@@ -137,26 +136,13 @@ function markerFill(pts, color, { angle = -.5, width = 26, seed = 3, alpha = .82
 }
 ```
 
-## Style spectrum: choose by audience and tone
+## No house style
 
-There is no house style. These are all legitimate ends of the range; pick (or mix) per piece, and say why in the look brief. The same subject for a toddler and for engineers should come out differently.
-
-| Style | Reads as | Fits | Main moves |
-|---|---|---|---|
-| Picture book | warm, safe, playful | small children, family pieces, gentle stories | rounded shapes, soft tinted outlines, blush, big-head proportions, `shape()` + `blush()` |
-| Ink doodle | handmade, candid, witty | explainers, personal notes, sketches | `ink()` with wobble and boil, hatching, paper ground |
-| Cinematic flat | grown-up, atmospheric | adult stories, comedy with mood | no outlines (`flatMass`), 3-5 inks, depth by value, silhouettes, off-centre framing |
-| Blueprint / technical | precise, constructive | engineering, "how it's built", code | fine lines, `guide()` construction lines, dimension marks |
-| Spot-colour print | bold, graphic, editorial | posters, music, culture | `spotLayers` multiply, misregistration, grain |
-| Engraving | classic, serious | history, science, portraits | `spiralShade` / line density for tone |
-| Marker / gouache | lively, painterly | travel, food, nature | `markerFill` strokes |
-| Clean geometric | modern, crisp | product, data, UI ideas | `LOOK.wobble = 0`, flat colour, hard edges, no texture |
-
-What makes a piece look accidentally childish is not any one style but defaults left in by accident when the audience is adult: every corner rounded, an outline on every shape, many saturated colours at equal weight, everything front-on at one distance, the subject always dead centre. When the audience is a child, several of those are exactly right.
+Pick the look from the subject and the audience; the techniques below are ingredients, not presets.
 
 ## 7. Cinematic flat + blueprint (in the starter)
 
-`flatMass(pts, col)` fills a shape with a shadow side and no outline. `guide(pts, t0, t)` draws a dashed construction outline that fades as the real thing appears at `t0` (show structures being "drawn up" before they fill in). `glow(x, y, r, [r,g,b], a)` is a soft light of any colour: morning sun through blinds, a candle, a phone screen in a dark room, neon on wet tarmac, a stage spotlight. Keep line widths constant on screen under zoom by multiplying by `PX`. Grain comes from the paper texture multiplied over the frame.
+`flatMass(pts, col)` fills a shape with a shadow side and no outline. `guide(pts, t0, t)` draws a dashed construction outline that fades as the real thing appears at `t0` (show structures being "drawn up" before they fill in). `glow(x, y, r, [r,g,b], a)` is a soft radial light. Keep line widths constant on screen under zoom by multiplying by `PX`. Grain comes from the paper texture multiplied over the frame.
 
 ## Depth without 3D (a road, a river, a corridor)
 
