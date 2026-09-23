@@ -12,6 +12,7 @@ Techniques, not presets. Each one is a way of making marks; the palette, scale a
 | 4. Single-line engraving | Renders correctly as a still; not yet used in a full film |
 | 5. Words as the shape | Renders correctly as a still; not yet used in a full film |
 | 6. Marker / gouache fill | Renders correctly as a still; not yet used in a full film |
+| 7. Cinematic flat + blueprint | Used across a full film (the "fix one line" example) |
 
 ## Derive the look
 
@@ -133,6 +134,25 @@ function markerFill(pts, color, { angle = -.5, width = 26, seed = 3, alpha = .82
   ctx.restore();
 }
 ```
+
+## Avoiding the childish look
+
+The default ways of drawing in code drift toward a toy look. What causes it, and what to do instead:
+
+| Looks childish | Looks grown-up |
+|---|---|
+| Every corner rounded, including walls and buildings | Hard corners on hard things; round only what is soft |
+| An outline around every shape (sticker style) | No outlines on masses; separate shapes by value (light side / shadow side) |
+| Big-head, blushing chibi proportions by default | Proportions chosen per piece; simple faces without blush unless the tone wants it |
+| Many saturated colours at equal weight | 3-5 inks, one lead colour, the rest muted |
+| Everything at the same distance, front-on | Depth: far things lighter and bluer, overlapping silhouettes, long shadows |
+| Subject always dead centre | Off-centre framing, negative space, tiny figures in big spaces |
+
+Useful references for the grown-up end, borrowed as techniques only: cinematic flat editorial illustration (limited palettes, silhouettes, grain, filmic framing), architectural and blueprint drawing (fine precise lines, construction guides, dimension marks), mid-century modern illustration (geometric but refined shapes).
+
+## 7. Cinematic flat + blueprint (in the starter)
+
+`flatMass(pts, col)` fills a shape with a shadow side and no outline. `guide(pts, t0, t)` draws a dashed construction outline that fades as the real thing appears at `t0` (show structures being "drawn up" before they fill in). `glow(x, y, r, [r,g,b], a)` is a soft light: a lit window, a streetlight, a screen lighting a wall. Keep line widths constant on screen under zoom by multiplying by `PX`. Grain comes from the paper texture multiplied over the frame.
 
 ## Depth without 3D (a road, a river, a corridor)
 
