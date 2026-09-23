@@ -15,7 +15,7 @@
 // Contract (render.mjs relies on it): draw(frame) is a pure function of the frame number,
 // so any frame can be rendered alone, in any order. Never use Math.random or Date here:
 // use rng(seed) / hash2() so the same frame always looks the same.
-const W = 1080, H = 1080, FPS = 30, DUR = 8, FRAMES = FPS * DUR;
+const W = 1080, H = 1080, FPS = 30, DUR = 6, FRAMES = FPS * DUR;
 const cv = document.getElementById('c');
 cv.width = W; cv.height = H;
 let ctx = cv.getContext('2d');
@@ -190,6 +190,40 @@ function blush(x, y, rx, ry, a = .5) { // soft radial cheek / glow
   ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0, 0, rx, 0, 7); ctx.fill(); ctx.restore();
 }
 
+// ---------- flat / blueprint primitives (the "cinematic flat" look; no outlines, value does the work) ----------
+function flatMass(pts, col, o = {}) {           // a flat shape with a shadow side, no outline
+  const { alpha = 1, shade = .18 } = o;
+  ctx.save(); ctx.globalAlpha = alpha; ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(...pts[0]); for (const p of pts.slice(1)) ctx.lineTo(...p); ctx.closePath(); ctx.fill();
+  if (shade) { const [x0, y0, x1, y1] = bbox(pts); ctx.clip(); ctx.fillStyle = `rgba(10,12,30,${shade})`; ctx.fillRect(x0 + (x1 - x0) * .7, y0, (x1 - x0) * .32, y1 - y0); }
+  ctx.restore();
+}
+function guide(pts, t0, t, o = {}) {            // dashed construction line that fades as the real thing fills in
+  const a = (o.alpha ?? .7) * (1 - prog(t, t0 + .25, t0 + .6)); if (a <= 0) return;
+  ctx.save(); ctx.globalAlpha = a; ctx.strokeStyle = o.col || '#9fb6d9'; ctx.lineWidth = 1.4 * PX; ctx.setLineDash([6 * PX, 5 * PX]);
+  ctx.beginPath(); ctx.moveTo(...pts[0]); for (const p of pts.slice(1)) ctx.lineTo(...p); if (o.closed !== false) ctx.closePath(); ctx.stroke(); ctx.restore();
+}
+function glow(x, y, r, rgb, a) {                 // soft light: rgb as [r, g, b]
+  ctx.save(); const g = ctx.createRadialGradient(x, y, 0, x, y, r); g.addColorStop(0, `rgba(${rgb},${a})`); g.addColorStop(1, `rgba(${rgb},0)`); ctx.fillStyle = g; ctx.fillRect(x - r, y - r, 2 * r, 2 * r); ctx.restore();
+}
+
+// ---------- one world, many cameras ----------
+let PX = 1;                                      // world units per screen pixel under the current camera: multiply line widths by it
+function withCamera(cam, fn) {                   // cam = { cx, cy, k }: world point at the screen centre, and zoom
+  ctx.save(); ctx.translate(W / 2, H / 2); ctx.scale(cam.k, cam.k); ctx.translate(-cam.cx, -cam.cy); const px = PX; PX = 1 / cam.k;
+  fn(); PX = px; ctx.restore();
+}
+
+// ---------- layout registry: claim what must not collide (read by scripts/layout-check.mjs) ----------
+let LAYOUT = [];
+function claim(id, kind, x, y, w, h) {           // kind: 'text' | 'keep'; box in the current transform
+  const m = ctx.getTransform(), P = [[x, y], [x + w, y], [x, y + h], [x + w, y + h]].map(([a, c]) => [m.a * a + m.c * c + m.e, m.b * a + m.d * c + m.f]);
+  const xs = P.map(p => p[0]), ys = P.map(p => p[1]); LAYOUT.push({ id, kind, x: Math.min(...xs), y: Math.min(...ys), w: Math.max(...xs) - Math.min(...xs), h: Math.max(...ys) - Math.min(...ys) });
+}
+function placeFree(w, h, candidates) {           // first candidate box [x, y] that overlaps nothing claimed so far this frame
+  const free = ([x, y]) => LAYOUT.every(o => x + w <= o.x || o.x + o.w <= x || y + h <= o.y || o.y + o.h <= y);
+  return candidates.find(free) || candidates[0];
+}
+
 // ---------- paper ----------
 const paper = document.createElement('canvas'); paper.width = W; paper.height = H;
 (() => {
@@ -213,39 +247,42 @@ function drawLayer(fn, filter, clip) {
   ctx.filter = filter || 'none'; ctx.drawImage(layer, 0, 0); ctx.restore();
 }
 
-// ---------- scenes ----------
-// One function per scene. Each receives LOCAL time (seconds since the scene started), so a scene
-// can be moved or retimed (e.g. to land on the music's beats) by editing only the SCENES table.
-function sceneA(t) { // t = 0 at the start of this scene
-  const r = circle(540, 520, 230);
-  drawOn([...r, r[0]], ease(prog(t, .3, 2.2)), { w: 7, seed: 1 });
-  if (t > 2.2) hatch(r, { seed: 1, alpha: .25 * prog(t, 2.2, 3) });
-  label('a line, drawn in code', 540, 880, { align: 'center', p: prog(t, 1.2, 2.4) });
+// ---------- storyboard: the single source of truth ----------
+// Beat grid first, then shots and blocking, then code. Scenes, camera and soundtrack all read these.
+const BPM = 120, BEAT = 60 / BPM, b = n => n * BEAT;            // b(8) = the 8th beat, in seconds
+const SECTIONS = [[0, 1, ['pad']], [1, 2, ['pad', 'hat8']], [2, 3, ['pad', 'hat8', 'kick2']], [3, 4, ['pad', 'kick4', 'hat8', 'clap']]];   // bars -> music layers; add one or two layers per bar
+const SHOTS = [                                                  // one world, many cameras; every cut on a beat
+  { from: 0, to: b(8), cam: t => ({ cx: 0, cy: -120, k: 1 + .06 * prog(t, 0, b(8)) }) },          // wide, slow push
+  { from: b(8), to: DUR, cam: t => ({ cx: 0, cy: -60, k: 2.4 }) },                                 // close-up
+];
+const BOX = { x: -40, drop: b(4), bounce: b(9) };                 // blocking: where the actor is, and when
+const EVENTS = [[b(4) + .3, 'thud'], [b(9), 'boing'], [b(10), 'ding']];   // [seconds, sfx]: one sound per visible action
+
+// ---------- the world, drawn in world coordinates ----------
+function world(t) {
+  ctx.fillStyle = '#d9d2c3'; ctx.fillRect(-2000, 0, 4000, 2000);                                   // floor
+  guide(boxR(BOX.x, -80, 80, 80), BOX.drop - .4, t);                                                // where it will land
+  const land = back(prog(t, BOX.drop, BOX.drop + .3)), hop = t > BOX.bounce ? Math.sin(prog(t, BOX.bounce, BOX.bounce + .5) * Math.PI) * 40 : 0;
+  if (t > BOX.drop) { const y = lerp(-900, -80, land) - hop; flatMass(box(BOX.x, y, 80, 80), RED); claim('box', 'keep', BOX.x, y, 80, 80); }
 }
-function sceneB(t) { // same kind of shape, illustration look instead of ink
-  const blob = circle(540, 520, 260, 200, Math.sin(t) * .1);
-  shape(blob, YELLOW, { seed: 2, shadow: true });
-  blush(470, 560, 60, 40, .6); blush(610, 560, 60, 40, .6);
-  note('every frame recomputed', 540, 880, { size: 34, alpha: prog(t, .5, 1.2) });
-}
-const SCENES = [[0, 4, sceneA], [4, DUR, sceneB]];
+const box = (x, y, w, h) => [[x, y], [x + w, y], [x + w, y + h], [x, y + h]];
+const boxR = (x, y, w, h) => resample(box(x, y, w, h), 10, true);
 
 function draw(frame) {
   const t = frame / FPS;
-  BOIL = Math.floor(frame / 4); // redraw wobble ~7.5x/sec: the "line boil" of hand animation
+  BOIL = Math.floor(frame / 4); LAYOUT = [];                     // redraw wobble ~7.5x/sec: the "line boil" of hand animation
   ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.filter = 'none'; ctx.globalAlpha = 1;
   ctx.drawImage(paper, 0, 0);
-  const s = SCENES.find(([a, b]) => t >= a && t < b) || SCENES[SCENES.length - 1];
-  s[2](t - s[0]);
-  // dip to paper around each cut, and fade out at the end
-  let dip = 0; for (const [a] of SCENES) if (a > 0) dip = Math.max(dip, 1 - Math.abs(t - a) / .28);
-  dip = Math.max(dip, prog(t, DUR - .5, DUR));
-  if (dip > 0) { ctx.globalAlpha = clamp(dip); ctx.drawImage(paper, 0, 0); ctx.globalAlpha = 1; }
+  const shot = SHOTS.find(s => t >= s.from && t < s.to) || SHOTS[SHOTS.length - 1];
+  withCamera(shot.cam(t), () => world(t));
+  if (t > b(10)) { const w = 360, h = 64, [x, y] = placeFree(w, h, [[W / 2 - w / 2, 160], [W / 2 - w / 2, 820]]);   // text steps aside from claimed things
+    label('landed.', x + 20, y + h / 2, { size: 44, p: prog(t, b(10), b(10) + .6) }); claim('caption', 'text', x, y, w, h); }
+  window.LAYOUT = LAYOUT;
 }
 window.draw = draw; window.FRAMES = FRAMES; window.FPS = FPS;
-window.CUES = SCENES.slice(1).map(([a]) => a); // scene cuts, read by render.mjs -> soundtrack
-// Optional soundtrack: paste skills/soundtrack/templates/score.js right here, then:
-// window.SCORE = ac => buildScore(ac, { dur: DUR, cues: window.CUES });
+window.CUES = SHOTS.slice(1).map(s => s.from);                     // cuts, read by render.mjs -> soundtrack and sync-check
+// Optional soundtrack: paste skills/soundtrack/templates/groove.js right here, then:
+// window.SCORE = ac => buildGroove(ac, { dur: DUR, bpm: BPM, sections: SECTIONS, events: EVENTS });
 
 // live preview when opened directly in a browser (render.mjs loads the page with ?render)
 if (!new URLSearchParams(location.search).has('render')) {
