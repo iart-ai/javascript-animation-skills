@@ -6,20 +6,34 @@ The starter already has the skeleton. This is a self-check step: don't stop to a
 
 ## 1. Beat grid
 
-- Pick a tempo from the mood: 70-90 bpm gentle, 110-128 bpm comic or energetic. `b(n)` is the n-th beat in seconds.
-- Lay out sections in bars: intro, build, peak, **break**, return, outro. A short silence before the punchline or the payoff is the strongest beat you have.
+- Pick a tempo from the mood: 60-80 bpm lullaby or ambient, 85-105 explainer, 110-140 comedy or energetic. `b(n)` is the n-th beat in seconds.
+- Pick a shape for the sections that fits the piece, for example:
+  - **escalation**: intro, build, peak, break, payoff (comedy, reveals)
+  - **steady**: one texture that breathes and evolves, no drop (ambient, lullaby, poem)
+  - **steps**: a short motif per step, a pause between steps, a resolve at the end (explainers)
+  - **verse/return**: a theme, a contrast, the theme again (stories)
+  A short silence before a payoff is a strong beat when the piece has one; a lullaby may never need it.
 - Every cut and every visible action sits on a beat or a half beat.
 
 ## 2. Shot list
 
-One row per shot. 30 seconds wants roughly 10-20 shots; a 5-8 second shot of one static composition reads as slow.
+One row per shot. Pick the pace from the form:
+
+| Form | Typical shot length | 30 s is about |
+|---|---|---|
+| Comedy, hype | 1-3 s | 12-20 shots |
+| Story | 2-5 s | 7-12 shots |
+| Explainer | 3-6 s (one idea per shot) | 5-9 shots |
+| Lullaby, ambient, poem | 5-10 s, long dissolves | 3-6 shots |
+
+A long shot is fine; a long shot where nothing is alive is not.
 
 | # | from–to (beats) | framing | camera move | what happens (the action) | blocking | action lands on | sound | transition |
 |---|---|---|---|---|---|---|---|---|
-| 3 | 10–16 | extreme close-up | slow push | the robot hammers the misspelled brick straight | robot drops in from above, stays left of the brick | beats 12, 13, 14 | clank ×3, ding | hard cut |
+| 4 | 12–16 | close-up | slow push | the kettle starts to whistle and the lid rattles | kettle centre-left; steam rises out of frame top right | beats 13, 14 (rattles), 15 (whistle) | tick, tick, whistle | match cut on the steam |
 
 - **Vary framing**: wide, medium, close, extreme close. Scale changes are what makes a short feel cinematic.
-- **Keep every shot moving**: a slow push or drift on the camera, plus at least one secondary motion (smoke, blinking lights, a sway). Fully still frames read as a slideshow.
+- **Keep every shot alive**: a slow push or drift on the camera, or at least one secondary motion (smoke, breathing, light changing), at whatever pace the form wants.
 - **Vary transitions**: hard cut, match cut, push into / pull out of an object (a screen, a window, an eye). Save the dip-to-paper for chapter breaks.
 
 ## 3. Blocking: one world, many cameras
@@ -33,8 +47,8 @@ One row per shot. 30 seconds wants roughly 10-20 shots; a 5-8 second shot of one
 
 ## 4. Story logic
 
-- **Every beat is caused by the previous one.** "Fixes it, then notices another problem" is flat; "fixing it knocks the next brick loose" is a chain the audience feels. Escalation should be causal.
-- **Show the metaphor in the picture.** If a wall stands for code, print code on the bricks; mark the misspelled one with a red squiggle. A label next to an unexplained picture doesn't land.
+- **Every beat is caused by the previous one.** "Does A, then notices B" is flat; "doing A causes B" is a chain the audience feels. Escalation should be causal.
+- **Show the metaphor in the picture.** If an object stands for an idea, draw the idea onto it, visibly. A label next to an unexplained picture doesn't land.
 - **Punchlines get their own shot**: a reveal (what happened), then a reverse shot of the reaction (the face). Cut between them on a beat.
 
 ## 5. Events

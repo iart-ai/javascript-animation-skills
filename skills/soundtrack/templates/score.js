@@ -6,9 +6,10 @@
 //
 // The music FOLLOWS THE PICTURE: a tempo map gives every scene a whole number of bars, so each cut
 // lands on a downbeat; each scene walks home to the dominant (G) so the cut arrives on the tonic (C).
-// The edit is marked by harmony, not volume. Options: bar (target bar length s, ~90 bpm = 2.67),
-// key (semitone transpose), tail (seconds of final resolving chord), gain (master level).
-function buildScore(ac, { dur, cues = [], bar = 2.67, key = 0, tail = 4, gain = .8 } = {}) {
+// The edit is marked by harmony, not volume. A scene only one bar long is just the dominant (G) leading
+// into the next cut; for many short scenes, lower `bar` so each gets two or more bars. Options: bar (target bar length s, ~90 bpm = 2.67),
+// key (semitone transpose), tail (seconds of final resolving chord), gain (master level), chime (a faint bell on each cut).
+function buildScore(ac, { dur, cues = [], bar = 2.67, key = 0, tail = 4, gain = .8, chime = false } = {}) {
   const T0 = ac.currentTime + (ac instanceof OfflineAudioContext ? 0 : .05), TAU = Math.PI * 2; // live: 50ms scheduling headroom
   const hz = m => 440 * Math.pow(2, (m + key - 69) / 12);
   const CUES = cues.filter(c => c > 0 && c < dur).sort((a, b) => a - b);
@@ -66,7 +67,7 @@ function buildScore(ac, { dur, cues = [], bar = 2.67, key = 0, tail = 4, gain = 
       });
     });
   }
-  CUES.forEach((c, i) => softChime(c, hz(88 + [0, 7, 4, 9, 12][i % 5]), .025, i % 2 ? .5 : -.5));
+  if (chime) CUES.forEach((c, i) => softChime(c, hz(88 + [0, 7, 4, 9, 12][i % 5]), .025, i % 2 ? .5 : -.5));   // optional sparkle on cuts
   const end = bounds[bounds.length - 1]; // ending: resolve on C; the roll starts exactly on the boundary
   bass(end, hz(48), .14); pad(end, hz(48), .06, TAIL);
   [60, 64, 67, 72].forEach((m, i) => musicBox(end + i * .08, hz(m + 12), .075, (i - 1.5) * .25));

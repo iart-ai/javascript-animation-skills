@@ -8,7 +8,7 @@
 //
 // Usage:
 //   node render.mjs page.html out.mp4                  full render (H.264, yuv420p)
-//   node render.mjs page.html shot --stills 0,150,300  -> shot-0000.jpg shot-0150.jpg ...
+//   node render.mjs page.html shot --stills 0,150,300  -> shot-0000.jpg shot-0150.jpg ...  (frames; or seconds: 2.5s,7s)
 //   node render.mjs page.html sheet.jpg --sheet [1]    one frame every N seconds, tiled into one image
 // Both are optional. On a full render, CUES are written to <out>.cues.json, and SCORE is rendered
 // offline to <out>.wav and muxed into the MP4 (without SCORE the MP4 is silent).
@@ -67,7 +67,7 @@ const stamped = async (f, fps) => Buffer.from(await page.evaluate(([f, fps]) => 
 
 
 if (opt('--stills')) {
-  for (const f of String(opt('--stills')).split(',').map(Number)) {
+  for (const f of String(opt('--stills')).split(',').map(v => v.trim().endsWith('s') ? Math.round(parseFloat(v) * info.FPS) : Number(v))) {
     const file = `${out}-${String(f).padStart(4, '0')}.jpg`; writeFileSync(file, await jpg(f)); console.log(file);
   }
 } else if (opt('--sheet')) {

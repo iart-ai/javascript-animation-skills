@@ -20,10 +20,20 @@ const cv = document.getElementById('c');
 cv.width = W; cv.height = H;
 let ctx = cv.getContext('2d');
 
-// PALETTE: placeholders only. Replace them with colors derived from THIS piece's concept
-// (see references/techniques.md "Derive the look"). Keep it to 3-5 colors.
-const PAPER = '#efeee9', INK = '#222222', RED = '#c0392b', BLUE = '#34495e',
-      YELLOW = '#d4a017', SHADOW = 'rgba(0,0,0,0.16)';
+// LOOK: every value here is a choice for THIS piece, not a default to keep. Decide each one from the
+// subject and the audience (references/techniques.md); don't carry choices over from
+// a previous piece. The palette below is deliberately grey: it is not a palette, only names to replace.
+// Choose real colours for this piece (3-5, one lead) and rename them.
+const PAPER = '#f2f2f2', INK = '#1a1a1a', RED = '#8c8c8c', BLUE = '#5c5c5c',
+      YELLOW = '#b8b8b8', SHADOW = 'rgba(0,0,0,0.16)';
+const LOOK = {
+  ground: 'flat',      // background: 'flat' (clean colour) | 'grain' (colour + fine noise) | 'paper' (grain, fibres, vignette)
+  wobble: 1,           // hand-drawn edge wobble: 0 = clean geometric lines, 1 = pen, 2+ = loose sketch
+  boil: 4,             // redraw the wobble every N frames (line boil); 0 = steady
+  font: '600 {s}px -apple-system, "Helvetica Neue", Arial, sans-serif',   // choose a family that fits: serif, rounded, mono, condensed, script...
+  labelStyle: 'plain', // 'plain' (text) | 'pill' (rounded box) | 'tag' (paper tape) | 'underline'
+  guideColor: INK,     // construction-line colour (blue only if the piece is a blueprint)
+};
 
 // ---------- math ----------
 const clamp = (x, a = 0, b = 1) => Math.max(a, Math.min(b, x));
@@ -73,7 +83,7 @@ function tracePath(pts, closed) {
   for (let i = 1; i < P.length - 1; i++) ctx.quadraticCurveTo(P[i][0], P[i][1], (P[i][0] + P[i + 1][0]) / 2, (P[i][1] + P[i + 1][1]) / 2);
   if (!closed) ctx.lineTo(...P[P.length - 1]); else ctx.closePath();
 }
-const J = (pts, seed, amp) => pts.map(([x, y]) => jit(x, y, BOIL + seed, amp));
+const J = (pts, seed, amp) => pts.map(([x, y]) => jit(x, y, BOIL + seed, amp * LOOK.wobble));
 
 function ink(pts, o = {}) {
   const { w = 4, col = INK, closed = false, amp = 2, seed = 0, passes = 2, alpha = 1 } = o;
@@ -126,10 +136,10 @@ const roundRect = (x, y, w, h, r) => resample([
   ...arc(x + w - r, y + r, r, -Math.PI / 2, 0), ...arc(x + w - r, y + h - r, r, 0, Math.PI / 2),
   ...arc(x + r, y + h - r, r, Math.PI / 2, Math.PI), ...arc(x + r, y + r, r, Math.PI, Math.PI * 1.5)], 10, true);
 
-// labels: paper-tape tags, typed on
-const FONT = '700 {s}px "Courier New", ui-monospace, monospace';
+// labels, typed on; their look comes from LOOK.labelStyle and LOOK.font
+const FONT = LOOK.font;
 function label(text, x, y, o = {}) {
-  const { size = 40, bg = BLUE, fg = PAPER, p = 1, align = 'left', rot = -0.015, seed = 3 } = o;
+  const { size = 40, bg = BLUE, fg = PAPER, p = 1, align = 'left', rot = LOOK.labelStyle === 'tag' ? -0.015 : 0, seed = 3, style = LOOK.labelStyle } = o;
   if (p <= 0) return;
   ctx.save(); ctx.font = FONT.replace('{s}', size);
   const n = Math.round(text.length * clamp((p - .1) / .9)), shown = text.slice(0, n);
@@ -139,9 +149,10 @@ function label(text, x, y, o = {}) {
   ctx.translate(x0 + w / 2, y); ctx.rotate(rot); ctx.translate(-(x0 + w / 2), -y);
   const sc = easeOut(p * 3);
   ctx.translate(x0, y); ctx.scale(1, sc); ctx.translate(-x0, -y);
-  const box = rect(x0, y - h / 2, w, h);
-  withShadow(() => fill(box, bg, { seed }), 6, 6);
-  ctx.fillStyle = fg; ctx.textBaseline = 'middle';
+  if (style === 'tag') { const box = rect(x0, y - h / 2, w, h); withShadow(() => fill(box, bg, { seed }), 6, 6); }
+  else if (style === 'pill') { ctx.fillStyle = bg; ctx.beginPath(); ctx.roundRect(x0, y - h / 2, w, h, h / 2); ctx.fill(); }
+  else if (style === 'underline') { ctx.fillStyle = bg; ctx.fillRect(x0 + padX, y + size * .55, w - padX * 2, Math.max(2, size * .08)); }
+  ctx.fillStyle = style === 'plain' || style === 'underline' ? (o.fg || INK) : fg; ctx.textBaseline = 'middle';
   ctx.fillText(shown, x0 + padX, y + 1);
   ctx.restore();
 }
@@ -199,7 +210,7 @@ function flatMass(pts, col, o = {}) {           // a flat shape with a shadow si
 }
 function guide(pts, t0, t, o = {}) {            // dashed construction line that fades as the real thing fills in
   const a = (o.alpha ?? .7) * (1 - prog(t, t0 + .25, t0 + .6)); if (a <= 0) return;
-  ctx.save(); ctx.globalAlpha = a; ctx.strokeStyle = o.col || '#9fb6d9'; ctx.lineWidth = 1.4 * PX; ctx.setLineDash([6 * PX, 5 * PX]);
+  ctx.save(); ctx.globalAlpha = a; ctx.strokeStyle = o.col || LOOK.guideColor; ctx.lineWidth = 1.4 * PX; ctx.setLineDash([6 * PX, 5 * PX]);
   ctx.beginPath(); ctx.moveTo(...pts[0]); for (const p of pts.slice(1)) ctx.lineTo(...p); if (o.closed !== false) ctx.closePath(); ctx.stroke(); ctx.restore();
 }
 function glow(x, y, r, rgb, a) {                 // soft light: rgb as [r, g, b]
@@ -229,8 +240,10 @@ const paper = document.createElement('canvas'); paper.width = W; paper.height = 
 (() => {
   const p = paper.getContext('2d'), r = rng(7);
   p.fillStyle = PAPER; p.fillRect(0, 0, W, H);
+  if (LOOK.ground === 'flat') return;
   for (let i = 0; i < 90000; i++) { p.fillStyle = r() < .5 ? 'rgba(90,70,50,0.05)' : 'rgba(255,255,255,0.08)';
     p.fillRect(r() * W, r() * H, 1 + r() * 1.5, 1 + r() * 1.5); }
+  if (LOOK.ground === 'grain') return;
   p.strokeStyle = 'rgba(120,95,70,0.06)'; p.lineWidth = 1;
   for (let i = 0; i < 260; i++) { const x = r() * W, y = r() * H, a = r() * 6.28, l = 6 + r() * 22;
     p.beginPath(); p.moveTo(x, y); p.quadraticCurveTo(x + Math.cos(a) * l / 2 + 3, y + Math.sin(a) * l / 2, x + Math.cos(a) * l, y + Math.sin(a) * l); p.stroke(); }
@@ -270,7 +283,7 @@ const boxR = (x, y, w, h) => resample(box(x, y, w, h), 10, true);
 
 function draw(frame) {
   const t = frame / FPS;
-  BOIL = Math.floor(frame / 4); LAYOUT = [];                     // redraw wobble ~7.5x/sec: the "line boil" of hand animation
+  BOIL = LOOK.boil ? Math.floor(frame / LOOK.boil) : 0; LAYOUT = [];   // boil 4 = wobble redrawn ~7.5x/sec, like hand animation
   ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.filter = 'none'; ctx.globalAlpha = 1;
   ctx.drawImage(paper, 0, 0);
   const shot = SHOTS.find(s => t >= s.from && t < s.to) || SHOTS[SHOTS.length - 1];

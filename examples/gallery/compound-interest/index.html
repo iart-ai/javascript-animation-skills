@@ -1,0 +1,552 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Interest on Interest</title>
+<style>
+  html,body{margin:0;background:#1b1917;display:grid;place-items:center;height:100vh}
+  canvas{width:min(100vw,100vh);height:auto;max-height:100vh}
+</style>
+</head>
+<body>
+<canvas id="c" width="1080" height="1080"></canvas>
+<script>
+// Starter for a zero-asset, code-drawn animation. Every pixel is computed; nothing is loaded.
+// Contract (render.mjs relies on it): draw(frame) is a pure function of the frame number,
+// so any frame can be rendered alone, in any order. Never use Math.random or Date here:
+// use rng(seed) / hash2() so the same frame always looks the same.
+const W = 1080, H = 1080, FPS = 30, DUR = 20, FRAMES = FPS * DUR;
+const cv = document.getElementById('c');
+cv.width = W; cv.height = H;
+let ctx = cv.getContext('2d');
+
+// LOOK: every value here is a choice for THIS piece, not a default to keep. Decide each one from the
+// subject and the audience (references/techniques.md "Style spectrum"); don't carry choices over from
+// a previous piece. The palette below is deliberately grey: it is not a palette, only names to replace.
+// Choose real colours for this piece (3-5, one lead) and rename them.
+// Savings-passbook look: cream ledger paper, slate ink; teal = your money, amber = plain interest, rust (lead) = interest on interest.
+const PAPER = '#efe7d3', INK = '#26323b', TEAL = '#2a7f72', AMBER = '#d9a23d', RUST = '#c24e2c',
+      BLUE = TEAL, SHADOW = 'rgba(38,50,59,0.16)';
+const LOOK = {
+  ground: 'grain',     // background: 'flat' (clean colour) | 'grain' (colour + fine noise) | 'paper' (grain, fibres, vignette)
+  wobble: .7,          // hand-drawn edge wobble: 0 = clean geometric lines, 1 = pen, 2+ = loose sketch
+  boil: 4,             // redraw the wobble every N frames (line boil); 0 = steady
+  font: '600 {s}px Georgia, "Iowan Old Style", "Times New Roman", serif',   // choose a family that fits: serif, rounded, mono, condensed, script...
+  labelStyle: 'plain',  // 'plain' (text) | 'pill' (rounded box) | 'tag' (paper tape) | 'underline'
+  guideColor: INK,     // construction-line colour (blue only if the piece is a blueprint)
+};
+
+// ---------- math ----------
+const clamp = (x, a = 0, b = 1) => Math.max(a, Math.min(b, x));
+const lerp = (a, b, t) => a + (b - a) * t;
+const ease = t => { t = clamp(t); return t < .5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2; };
+const easeOut = t => 1 - Math.pow(1 - clamp(t), 3);
+const back = t => { t = clamp(t); const c = 1.7; return 1 + (c + 1) * Math.pow(t - 1, 3) + c * Math.pow(t - 1, 2); };
+const prog = (t, a, b) => clamp((t - a) / (b - a));
+
+function hash2(a, b) {
+  let n = Math.imul(a | 0, 374761393) + Math.imul(b | 0, 668265263);
+  n = Math.imul(n ^ (n >>> 13), 1274126177);
+  return ((n ^ (n >>> 16)) >>> 0) / 4294967295;
+}
+function vnoise(x, y) {
+  const xi = Math.floor(x), yi = Math.floor(y), xf = x - xi, yf = y - yi;
+  const u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf);
+  return lerp(lerp(hash2(xi, yi), hash2(xi + 1, yi), u), lerp(hash2(xi, yi + 1), hash2(xi + 1, yi + 1), u), v);
+}
+function rng(seed) { let a = seed | 0; return () => { a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+
+// ---------- hand-drawn primitives ----------
+let BOIL = 0;          // changes every 4 frames -> "line boil"
+let SHADOWING = false; // when true, primitives paint the drop shadow color
+
+function jit(x, y, seed, amp) {
+  const s = seed * 13.37;
+  return [
+    x + (vnoise(x * .012 + s, y * .012) - .5) * 2 * amp + (vnoise(x * .09 + s, y * .09 + 7) - .5) * amp * .6,
+    y + (vnoise(x * .012, y * .012 + s + 50) - .5) * 2 * amp + (vnoise(x * .09 + 3, y * .09 + s) - .5) * amp * .6,
+  ];
+}
+function resample(pts, step = 9, closed = false) {
+  const out = [], P = closed ? [...pts, pts[0]] : pts;
+  for (let i = 0; i < P.length - 1; i++) {
+    const [x0, y0] = P[i], [x1, y1] = P[i + 1], n = Math.max(1, Math.ceil(Math.hypot(x1 - x0, y1 - y0) / step));
+    for (let k = 0; k < n; k++) out.push([lerp(x0, x1, k / n), lerp(y0, y1, k / n)]);
+  }
+  if (!closed) out.push(P[P.length - 1]);
+  return out;
+}
+function tracePath(pts, closed) {
+  ctx.beginPath();
+  if (pts.length < 3) { ctx.moveTo(...pts[0]); pts.slice(1).forEach(p => ctx.lineTo(...p)); if (closed) ctx.closePath(); return; }
+  const P = closed ? [...pts, pts[0], pts[1]] : pts;
+  ctx.moveTo(...(closed ? [(P[0][0] + P[1][0]) / 2, (P[0][1] + P[1][1]) / 2] : P[0]));
+  for (let i = 1; i < P.length - 1; i++) ctx.quadraticCurveTo(P[i][0], P[i][1], (P[i][0] + P[i + 1][0]) / 2, (P[i][1] + P[i + 1][1]) / 2);
+  if (!closed) ctx.lineTo(...P[P.length - 1]); else ctx.closePath();
+}
+const J = (pts, seed, amp) => pts.map(([x, y]) => jit(x, y, BOIL + seed, amp * LOOK.wobble));
+
+function ink(pts, o = {}) {
+  const { w = 4, col = INK, closed = false, amp = 2, seed = 0, passes = 2, alpha = 1 } = o;
+  ctx.save(); ctx.lineCap = ctx.lineJoin = 'round';
+  for (let p = 0; p < passes; p++) {
+    ctx.globalAlpha = alpha * (p ? .45 : 1);
+    ctx.strokeStyle = SHADOWING ? SHADOW : col;
+    ctx.lineWidth = w * (p ? .55 : 1);
+    tracePath(J(pts, seed + p * .41, amp * (p ? 1.4 : 1)), closed);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+function fill(pts, col, o = {}) {
+  const { amp = 1.6, seed = 0, alpha = 1 } = o;
+  ctx.save(); ctx.globalAlpha = alpha; ctx.fillStyle = SHADOWING ? SHADOW : col;
+  tracePath(J(pts, seed + .2, amp), true); ctx.fill(); ctx.restore();
+}
+function hatch(pts, o = {}) {
+  if (SHADOWING) return;
+  const { angle = -0.9, gap = 11, col = INK, w = 1.6, alpha = .35, seed = 0 } = o;
+  const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
+  const cx = (Math.min(...xs) + Math.max(...xs)) / 2, cy = (Math.min(...ys) + Math.max(...ys)) / 2;
+  const R = Math.hypot(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)) / 2 + 10;
+  ctx.save(); tracePath(J(pts, seed, 1.5), true); ctx.clip();
+  ctx.translate(cx, cy); ctx.rotate(angle);
+  ctx.strokeStyle = col; ctx.lineWidth = w; ctx.globalAlpha = alpha; ctx.lineCap = 'round';
+  for (let y = -R, i = 0; y < R; y += gap, i++) {
+    const a = hash2(i, BOIL + seed * 7) * 4 - 2, b = hash2(i + 99, BOIL + seed * 7) * 4 - 2;
+    ctx.beginPath(); ctx.moveTo(-R, y + a); ctx.quadraticCurveTo(0, y + (a + b), R, y + b); ctx.stroke();
+  }
+  ctx.restore();
+}
+function withShadow(fn, dx = 9, dy = 9) {
+  ctx.save(); ctx.translate(dx, dy); SHADOWING = true; fn(); SHADOWING = false; ctx.restore(); fn();
+}
+
+// shapes
+const circle = (cx, cy, r, ry = r, rot = 0) => {
+  const n = Math.max(20, Math.round(Math.max(r, ry) * .45)), out = [];
+  for (let i = 0; i < n; i++) { const a = i / n * Math.PI * 2, x = Math.cos(a) * r, y = Math.sin(a) * ry;
+    out.push([cx + x * Math.cos(rot) - y * Math.sin(rot), cy + x * Math.sin(rot) + y * Math.cos(rot)]); }
+  return out;
+};
+const rect = (x, y, w, h) => resample([[x, y], [x + w, y], [x + w, y + h], [x, y + h]], 12, true);
+const line = (x0, y0, x1, y1) => resample([[x0, y0], [x1, y1]], 10);
+const arc = (cx, cy, r, a0, a1, ry = r) => { const n = Math.max(8, Math.round(Math.abs(a1 - a0) * r / 9)), o = [];
+  for (let i = 0; i <= n; i++) { const a = lerp(a0, a1, i / n); o.push([cx + Math.cos(a) * r, cy + Math.sin(a) * ry]); } return o; };
+const roundRect = (x, y, w, h, r) => resample([
+  ...arc(x + w - r, y + r, r, -Math.PI / 2, 0), ...arc(x + w - r, y + h - r, r, 0, Math.PI / 2),
+  ...arc(x + r, y + h - r, r, Math.PI / 2, Math.PI), ...arc(x + r, y + r, r, Math.PI, Math.PI * 1.5)], 10, true);
+
+// labels, typed on; their look comes from LOOK.labelStyle and LOOK.font
+const FONT = LOOK.font;
+function label(text, x, y, o = {}) {
+  const { size = 40, bg = BLUE, fg = PAPER, p = 1, align = 'left', rot = LOOK.labelStyle === 'tag' ? -0.015 : 0, seed = 3, style = LOOK.labelStyle } = o;
+  if (p <= 0) return;
+  ctx.save(); ctx.font = FONT.replace('{s}', size);
+  const n = Math.round(text.length * clamp((p - .1) / .9)), shown = text.slice(0, n);
+  const full = ctx.measureText(text).width, padX = size * .45, h = size * 1.45;
+  const w = Math.max(size, ctx.measureText(shown).width) + padX * 2;
+  const x0 = align === 'center' ? x - (full + padX * 2) / 2 : align === 'right' ? x - w : x;
+  ctx.translate(x0 + w / 2, y); ctx.rotate(rot); ctx.translate(-(x0 + w / 2), -y);
+  const sc = easeOut(p * 3);
+  ctx.translate(x0, y); ctx.scale(1, sc); ctx.translate(-x0, -y);
+  if (style === 'tag') { const box = rect(x0, y - h / 2, w, h); withShadow(() => fill(box, bg, { seed }), 6, 6); }
+  else if (style === 'pill') { ctx.fillStyle = bg; ctx.beginPath(); ctx.roundRect(x0, y - h / 2, w, h, h / 2); ctx.fill(); }
+  else if (style === 'underline') { ctx.fillStyle = bg; ctx.fillRect(x0 + padX, y + size * .55, w - padX * 2, Math.max(2, size * .08)); }
+  ctx.fillStyle = style === 'plain' || style === 'underline' ? (o.fg || INK) : fg; ctx.textBaseline = 'middle';
+  ctx.fillText(shown, x0 + padX, y + 1);
+  ctx.restore();
+}
+function note(text, x, y, o = {}) { // plain handwritten-ish ink text
+  const { size = 26, col = INK, align = 'center', alpha = 1 } = o;
+  ctx.save(); ctx.globalAlpha = alpha; ctx.font = FONT.replace('{s}', size); ctx.fillStyle = col;
+  ctx.textAlign = align; ctx.textBaseline = 'middle'; ctx.fillText(text, x, y); ctx.restore();
+}
+
+
+// reveal a stroke progressively (0..1): hand-drawing a line onto the page
+function drawOn(pts, p, o = {}) {
+  const n = Math.max(2, Math.round(pts.length * clamp(p)));
+  if (p > 0) ink(pts.slice(0, n), o);
+}
+
+// ---------- illustration primitives (a second look; use these OR the ink ones, per concept) ----------
+// Picture-book shapes: outline in a darker tint of the fill (not black), inner shade, brush texture.
+const rgbOf = h => [1, 3, 5].map(i => parseInt(h.substr(i, 2), 16));
+const tint = (h, k) => `rgb(${rgbOf(h).map(v => Math.round(k < 1 ? v * k : v + (255 - v) * (k - 1))).join(',')})`; // k<1 darker, k>1 toward white
+const bbox = pts => { const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]); return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)]; };
+function shape(pts, col, o = {}) {
+  const { line = tint(col, .6), lw = 3.5, seed = 0, tex = true, shade = true, shadow = false, alpha = 1 } = o;
+  if (shadow) { ctx.save(); ctx.translate(8, 10); fill(pts, 'rgba(90,60,40,.12)', { seed, amp: 1 }); ctx.restore(); }
+  fill(pts, col, { seed, amp: 1, alpha });
+  if (tex || shade) {
+    const [x0, y0, x1, y1] = bbox(pts), bw = x1 - x0, bh = y1 - y0;
+    ctx.save(); tracePath(J(pts, seed + .2, 1), true); ctx.clip(); ctx.globalAlpha = alpha;
+    if (shade) { // darker rim toward bottom-right: fill dark, then the shape again nudged up-left
+      ctx.fillStyle = tint(col, .8); ctx.fillRect(x0 - 5, y0 - 5, bw + 10, bh + 10);
+      ctx.translate(-bw * .07, -bh * .09); fill(pts, col, { seed, amp: 1 }); ctx.translate(bw * .07, bh * .09);
+    }
+    if (tex) { // a few translucent lighter brush strokes
+      const r = rng((Math.abs(seed * 97) | 0) + 1); ctx.lineCap = 'round'; ctx.strokeStyle = tint(col, 1.35);
+      for (let i = 0; i < 10; i++) { ctx.globalAlpha = .1 + r() * .1; ctx.lineWidth = 6 + r() * 10; const y = y0 + r() * bh, x = x0 + r() * bw * .5;
+        ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + bw * (.2 + r() * .4), y - bh * .1 * r()); ctx.stroke(); }
+    }
+    ctx.restore();
+  }
+  if (lw) ink(pts, { closed: true, w: lw, col: line, seed, amp: 1, passes: 1, alpha });
+}
+function blush(x, y, rx, ry, a = .5) { // soft radial cheek / glow
+  ctx.save(); ctx.translate(x, y); ctx.scale(1, ry / rx); // gradient is built in the transformed space
+  const g = ctx.createRadialGradient(0, 0, 0, 0, 0, rx);
+  g.addColorStop(0, `rgba(236,130,115,${a})`); g.addColorStop(1, 'rgba(236,130,115,0)');
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0, 0, rx, 0, 7); ctx.fill(); ctx.restore();
+}
+
+// ---------- flat / blueprint primitives (the "cinematic flat" look; no outlines, value does the work) ----------
+function flatMass(pts, col, o = {}) {           // a flat shape with a shadow side, no outline
+  const { alpha = 1, shade = .18 } = o;
+  ctx.save(); ctx.globalAlpha = alpha; ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(...pts[0]); for (const p of pts.slice(1)) ctx.lineTo(...p); ctx.closePath(); ctx.fill();
+  if (shade) { const [x0, y0, x1, y1] = bbox(pts); ctx.clip(); ctx.fillStyle = `rgba(10,12,30,${shade})`; ctx.fillRect(x0 + (x1 - x0) * .7, y0, (x1 - x0) * .32, y1 - y0); }
+  ctx.restore();
+}
+function guide(pts, t0, t, o = {}) {            // dashed construction line that fades as the real thing fills in
+  const a = (o.alpha ?? .7) * (1 - prog(t, t0 + .25, t0 + .6)); if (a <= 0) return;
+  ctx.save(); ctx.globalAlpha = a; ctx.strokeStyle = o.col || LOOK.guideColor; ctx.lineWidth = 1.4 * PX; ctx.setLineDash([6 * PX, 5 * PX]);
+  ctx.beginPath(); ctx.moveTo(...pts[0]); for (const p of pts.slice(1)) ctx.lineTo(...p); if (o.closed !== false) ctx.closePath(); ctx.stroke(); ctx.restore();
+}
+function glow(x, y, r, rgb, a) {                 // soft light: rgb as [r, g, b]
+  ctx.save(); const g = ctx.createRadialGradient(x, y, 0, x, y, r); g.addColorStop(0, `rgba(${rgb},${a})`); g.addColorStop(1, `rgba(${rgb},0)`); ctx.fillStyle = g; ctx.fillRect(x - r, y - r, 2 * r, 2 * r); ctx.restore();
+}
+
+// ---------- one world, many cameras ----------
+let PX = 1;                                      // world units per screen pixel under the current camera: multiply line widths by it
+function withCamera(cam, fn) {                   // cam = { cx, cy, k }: world point at the screen centre, and zoom
+  ctx.save(); ctx.translate(W / 2, H / 2); ctx.scale(cam.k, cam.k); ctx.translate(-cam.cx, -cam.cy); const px = PX; PX = 1 / cam.k;
+  fn(); PX = px; ctx.restore();
+}
+
+// ---------- layout registry: claim what must not collide (read by scripts/layout-check.mjs) ----------
+let LAYOUT = [];
+function claim(id, kind, x, y, w, h) {           // kind: 'text' | 'keep'; box in the current transform
+  const m = ctx.getTransform(), P = [[x, y], [x + w, y], [x, y + h], [x + w, y + h]].map(([a, c]) => [m.a * a + m.c * c + m.e, m.b * a + m.d * c + m.f]);
+  const xs = P.map(p => p[0]), ys = P.map(p => p[1]); LAYOUT.push({ id, kind, x: Math.min(...xs), y: Math.min(...ys), w: Math.max(...xs) - Math.min(...xs), h: Math.max(...ys) - Math.min(...ys) });
+}
+function placeFree(w, h, candidates) {           // first candidate box [x, y] that overlaps nothing claimed so far this frame
+  const free = ([x, y]) => LAYOUT.every(o => x + w <= o.x || o.x + o.w <= x || y + h <= o.y || o.y + o.h <= y);
+  return candidates.find(free) || candidates[0];
+}
+
+// ---------- paper ----------
+const paper = document.createElement('canvas'); paper.width = W; paper.height = H;
+(() => {
+  const p = paper.getContext('2d'), r = rng(7);
+  p.fillStyle = PAPER; p.fillRect(0, 0, W, H);
+  if (LOOK.ground === 'flat') return;
+  for (let i = 0; i < 90000; i++) { p.fillStyle = r() < .5 ? 'rgba(90,70,50,0.05)' : 'rgba(255,255,255,0.08)';
+    p.fillRect(r() * W, r() * H, 1 + r() * 1.5, 1 + r() * 1.5); }
+  p.fillStyle = 'rgba(42,127,114,0.07)'; for (let y = 36; y < H; y += 36) p.fillRect(0, y, W, 1.2);
+  if (LOOK.ground === 'grain') return;
+  p.strokeStyle = 'rgba(120,95,70,0.06)'; p.lineWidth = 1;
+  for (let i = 0; i < 260; i++) { const x = r() * W, y = r() * H, a = r() * 6.28, l = 6 + r() * 22;
+    p.beginPath(); p.moveTo(x, y); p.quadraticCurveTo(x + Math.cos(a) * l / 2 + 3, y + Math.sin(a) * l / 2, x + Math.cos(a) * l, y + Math.sin(a) * l); p.stroke(); }
+  const g = p.createRadialGradient(W / 2, H / 2, W * .35, W / 2, H / 2, W * .75);
+  g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(1, 'rgba(60,40,20,0.13)'); p.fillStyle = g; p.fillRect(0, 0, W, H);
+})();
+
+// offscreen layer for filtered (blurred / desaturated) drawing
+const layer = document.createElement('canvas'); layer.width = W; layer.height = H;
+function drawLayer(fn, filter, clip) {
+  const main = ctx, l = layer.getContext('2d');
+  l.clearRect(0, 0, W, H); ctx = l; fn(); ctx = main;
+  ctx.save(); if (clip) { ctx.beginPath(); ctx.rect(...clip); ctx.clip(); }
+  ctx.filter = filter || 'none'; ctx.drawImage(layer, 0, 0); ctx.restore();
+}
+
+// ---------- storyboard: the single source of truth ----------
+// 96 bpm, 8 bars of 4 beats = 20 s. Steps shape: stack -> year 1 -> year 2 -> 30 years -> recap.
+const BPM = 96, BEAT = 60 / BPM, b = n => n * BEAT;
+const SECTIONS = [
+  [0, 1, ['padSoft', 'pluck']],
+  [1, 2, ['padSoft', 'pluck', 'kick2']],
+  [2, 4, ['padSoft', 'pluck', 'kick2', 'hat8', 'bass8']],
+  [4, 7, ['padSoft', 'pluck', 'kick2', 'hat8', 'bassHalf', 'lead']],
+  [7, 8, ['padSoft', 'pluck', 'kick2', 'bassHalf']],
+];
+// world units: 1 dollar = 1 unit of stack height; a coin is $10 (10 units thick), columns 60 apart
+const RATE = .10, COIN = 10, CW = 50, STEP = 60, colX = n => n * STEP;
+const B = n => 100 * Math.pow(1 + RATE, n);
+const Y1 = { slide: b(7), land: b(8) }, Y2 = { slide: b(13), land: b(14) };
+const FAST = { from: b(19), to: b(25) };           // years 3..30
+const lerpCam = (a, c, e) => ({ cx: lerp(a.cx, c.cx, e), cy: lerp(a.cy, c.cy, e), k: Math.exp(lerp(Math.log(a.k), Math.log(c.k), e)) });
+const CAM3 = { cx: 150, cy: -105, k: 4.4 }, WIDE = { cx: 900, cy: -860, k: .5 };
+const SHOTS = [
+  { from: 0, to: b(6), name: 'stack', cam: t => ({ cx: 0, cy: -60, k: 3 + .15 * prog(t, 0, b(6)) }) },                       // medium, slow push
+  { from: b(6), to: b(12), name: 'year1', cam: t => ({ cx: 30 + 6 * prog(t, b(6), b(12)), cy: -70, k: 3.4 }) },            // close, drift right
+  { from: b(12), to: b(18), name: 'year2', cam: t => lerpCam({ cx: 140, cy: -100, k: 3.8 }, CAM3, ease(prog(t, b(12), b(18)))) }, // extreme close push
+  { from: b(18), to: b(26), name: 'decades', cam: t => lerpCam(CAM3, WIDE, ease(prog(t, b(18), b(25)))) },                 // pull out to wide
+  { from: b(26), to: DUR, name: 'recap', cam: t => lerpCam(WIDE, { cx: 1050, cy: -900, k: .6 }, easeOut(prog(t, b(26), DUR - .5))) }, // push in
+];
+const EVENTS = [];
+for (let i = 0; i < 10; i++) EVENTS.push([b(.5 + i * .5), 'popLow', i % 6]);            // ten $10 coins stack up
+EVENTS.push([b(6), 'clack'], [Y1.slide, 'swish'], [Y1.land, 'clonk'], [b(9), 'tick']);
+EVENTS.push([Y2.slide, 'swish'], [Y2.land, 'clonk'], [b(15), 'ding']);
+for (let n = 4; n <= 30; n += 2) EVENTS.push([FAST.from + (n - 3) / 27 * (FAST.to - FAST.from), 'tick']);
+EVENTS.push([b(25), 'flag'], [b(27), 'pop'], [b(29), 'ding']);
+
+// ---------- the world ----------
+// Each column is the balance at the end of year n, stacked in $10 coins:
+// teal = the $100 you put in, amber = plain interest ($10 a year), rust = interest earned on interest.
+function segColor(d, n) { return d < 100 ? TEAL : d < 100 + 10 * n ? AMBER : RUST; }
+function column(x, n, total, o = {}) {
+  const { live = false } = o; if (total <= 0) return;
+  const coins = Math.ceil(total / COIN - 1e-6);
+  for (let j = 0; j < coins; j++) {
+    const lo = j * COIN, hi = Math.min(total, lo + COIN), col = segColor(lo, n);
+    const y0 = -hi, h = hi - lo;
+    ctx.fillStyle = col; ctx.beginPath(); ctx.roundRect(x - CW / 2, y0, CW, h, Math.min(3, h / 2)); ctx.fill();
+    if (h > 2) { ctx.fillStyle = tint(col, 1.25); ctx.fillRect(x - CW / 2 + 4, y0 + 1.5, CW * .35, Math.max(.6, h * .18)); }
+    ctx.strokeStyle = tint(col, .62); ctx.lineWidth = Math.max(.8, 1.1 * PX); ctx.beginPath(); ctx.moveTo(x - CW / 2 + 2, -lo); ctx.lineTo(x + CW / 2 - 2, -lo); ctx.stroke();
+  }
+  if (live) ink(resample([[x - CW / 2 - 2, 1], [x - CW / 2 - 2, -total - 2], [x + CW / 2 + 2, -total - 2], [x + CW / 2 + 2, 1]], 8), { w: 2.2 * PX, amp: .8 * PX, passes: 1, seed: n });
+  claim('col' + n, 'keep', x - CW / 2, -total, CW, total);
+}
+// small chips (10% of each coin) fly off every coin and land on top: the interest being made
+function chips(x, n, t, T) {
+  const total = B(n - 1), coins = Math.round(total / COIN * 10) / 10, k = Math.ceil(coins);
+  for (let j = 0; j < k; j++) {
+    const s = T.slide + .3 + j * .02, e = T.land - .02; if (t < s || t > e) continue;
+    const p = ease(prog(t, s, e)), y0 = -(j * COIN + COIN / 2), y1 = -total - 4;
+    const cx = x + CW / 2 + 40 + j * 1.5, cy = (y0 + y1) / 2;
+    const px = (1 - p) * (1 - p) * (x + CW / 2) + 2 * (1 - p) * p * cx + p * p * x, py = (1 - p) * (1 - p) * y0 + 2 * (1 - p) * p * cy + p * p * y1;
+    const col = j * COIN < 100 ? AMBER : RUST;
+    ctx.fillStyle = col; ctx.beginPath(); ctx.ellipse(px, py, 4.5, 2.4, 0, 0, 7); ctx.fill();
+    ctx.strokeStyle = tint(col, .6); ctx.lineWidth = .6; ctx.stroke();
+  }
+}
+const floorLine = resample([[-200, 0], [1950, 0]], 12);
+function world(t) {
+  ink(floorLine, { w: 2 * PX, amp: 1.2 * PX, passes: 1, col: INK, alpha: .8 });
+  if (t < b(6)) {                                   // shot 1: the $100 stacks up coin by coin
+    const landed = [...Array(10).keys()].filter(i => t >= b(.5 + i * .5) - .12).length;
+    const tot = landed * COIN;
+    if (tot > 0) { const i = landed - 1, tl = b(.5 + i * .5), drop = 1 - back(prog(t, tl - .12, tl + .08));
+      if (i > 0) column(0, 0, i * COIN); ctx.save(); ctx.translate(0, -drop * 40);
+      ctx.fillStyle = TEAL; ctx.beginPath(); ctx.roundRect(-CW / 2, -(i + 1) * COIN, CW, COIN, 3); ctx.fill();
+      ctx.fillStyle = tint(TEAL, 1.25); ctx.fillRect(-CW / 2 + 4, -(i + 1) * COIN + 1.5, CW * .35, 1.8);
+      ctx.strokeStyle = tint(TEAL, .62); ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(-CW / 2 + 2, -i * COIN); ctx.lineTo(CW / 2 - 2, -i * COIN); ctx.stroke(); ctx.restore();
+      claim('col0', 'keep', -CW / 2, -tot, CW, tot); }
+    return;
+  }
+  const done = t < Y1.land ? 0 : t < Y2.land ? 1 : t < FAST.from ? 2 : Math.min(30, 3 + Math.floor(prog(t, FAST.from, FAST.to) * 27 + 1e-6));
+  for (let n = 0; n <= done; n++) column(colX(n), n, B(n), { live: n === done && t < b(26) });
+  for (const [T, n] of [[Y1, 1], [Y2, 2]]) if (t >= T.slide && t < T.land) {  // copy slides right, then the interest chips fly
+    const x = lerp(colX(n - 1), colX(n), ease(prog(t, T.slide, T.slide + .3)));
+    column(x, n - 1, B(n - 1), { live: true }); chips(x, n, t, T);
+  }
+  if (t >= Y2.land && t < b(18)) {                  // ring the $1 of interest-on-interest
+    const p = prog(t, b(15), b(15) + .35); if (p > 0) {
+      ctx.save(); ctx.strokeStyle = RUST; ctx.lineWidth = 1.4; ctx.globalAlpha = p;
+      ctx.beginPath(); ctx.ellipse(colX(2), -120.5, CW * .75 * easeOut(p * 1.4), 7, 0, 0, 7); ctx.stroke(); ctx.restore(); }
+  }
+  if (t >= b(23) && t < b(26)) {                     // the no-compounding line: $100 + $10 x 30 = $400
+    const p = ease(prog(t, b(23), b(24)));
+    ctx.save(); ctx.strokeStyle = INK; ctx.globalAlpha = .75; ctx.lineWidth = 2.2 * PX; ctx.setLineDash([10 * PX, 8 * PX]);
+    ctx.beginPath(); ctx.moveTo(-40, -400); ctx.lineTo(lerp(-40, 1830, p), -400); ctx.stroke(); ctx.restore();
+  }
+}
+
+// ---------- screen-space text ----------
+const money = v => '$' + Math.round(v).toLocaleString('en-US');
+const TXT = (s, w = 600) => FONT.replace('{s}', s).replace('600', w);
+function text(str, x, y, size, o = {}) {
+  const { col = INK, align = 'left', weight = 600, alpha = 1, id = str } = o;
+  if (alpha <= 0) return;
+  ctx.save(); ctx.globalAlpha = alpha; ctx.font = TXT(size, weight); ctx.fillStyle = col; ctx.textAlign = align; ctx.textBaseline = 'alphabetic';
+  ctx.fillText(str, x, y); const w = ctx.measureText(str).width; ctx.restore();
+  const x0 = align === 'center' ? x - w / 2 : align === 'right' ? x - w : x;
+  claim(id, 'text', x0, y - size * .8, w, size * 1.05);
+}
+function typed(str, p) { return str.slice(0, Math.round(str.length * clamp(p))); }
+function hud(t) {                                   // the persistent gauge: year and balance
+  let year = 0, bal = 0;
+  if (t < b(6)) bal = [...Array(10).keys()].filter(i => t >= b(.5 + i * .5)).length * COIN;
+  else { year = t < Y1.land ? 0 : t < Y2.land ? 1 : t < FAST.from ? 2 : Math.min(30, 3 + Math.floor(prog(t, FAST.from, FAST.to) * 27 + 1e-6)); bal = B(year); }
+  ctx.save(); ctx.fillStyle = PAPER; ctx.globalAlpha = .88; ctx.fillRect(48, 44, 330, 128); ctx.restore();
+  ink(resample([[48, 172], [378, 172]], 10), { w: 2, amp: .8, passes: 1, col: INK });
+  text('YEAR ' + year, 60, 84, 26, { weight: 700, col: INK, id: 'hud-year' });
+  text(money(bal), 60, 152, 62, { weight: 700, col: year >= 2 ? RUST : TEAL, id: 'hud-bal' });
+}
+function captions(t) {
+  const cap = (s, t0, y = 262, size = 40) => text(typed(s, prog(t, t0, t0 + .5)), W / 2, y, size, { align: 'center', id: 'cap' });
+  if (t < b(6)) {
+    cap('Save $100 at 10% a year.', .1);
+    if (t > b(3)) text(typed('Why does it grow faster every year?', prog(t, b(3), b(3) + .5)), W / 2, 318, 32, { align: 'center', weight: 400, id: 'q' });
+  } else if (t < b(12)) {
+    cap('Year 1: 10% of $100 = +$10', b(6) + .1);
+    if (t > b(9)) text(typed('every coin earns a sliver', prog(t, b(9), b(9) + .4)), W / 2, 318, 30, { align: 'center', weight: 400, col: INK, alpha: .7, id: 'sub1' });
+  } else if (t < b(18)) {
+    cap('Year 2: 10% of $110 = +$11', b(12) + .1);
+    if (t > b(15)) {
+      const p = prog(t, b(15), b(15) + .5), a = clamp(p * 2);
+      text('+$1', 640, 470, 54, { col: RUST, weight: 700, alpha: a, id: 'plus1' });
+      text(typed('interest on your interest', p), 640, 512, 28, { weight: 400, alpha: a, id: 'ioi' });
+    }
+  } else if (t >= b(26)) {
+    text(typed('Interest earns interest.', prog(t, b(27), b(27) + .6)), 64, 330, 50, { weight: 700, id: 'r1' });
+    if (t > b(29)) text(typed('Time does the rest.', prog(t, b(29), b(29) + .5)), 64, 400, 50, { weight: 700, col: RUST, id: 'r2' });
+  }
+}
+function legend(t) {
+  if (t < b(21) || t >= b(26)) return;
+  const rows = [[TEAL, 'the $100 you saved'], [AMBER, 'interest on the $100'], [RUST, 'interest on interest']];
+  rows.forEach(([c, s], i) => {
+    const p = prog(t, b(21) + i * b(.5), b(21) + i * b(.5) + .3); if (p <= 0) return;
+    const y = 300 + i * 50;
+    ctx.save(); ctx.globalAlpha = p; ctx.fillStyle = c; ctx.beginPath(); ctx.roundRect(64, y - 24, 38, 26, 4); ctx.fill(); ctx.restore();
+    claim('sw' + i, 'text', 64, y - 24, 38, 26);
+    text(s, 116, y, 30, { weight: 400, alpha: p, id: 'lg' + i });
+  });
+  if (t >= b(24)) {
+    const cam = SHOTS[3].cam(t), sy = H / 2 + (-400 - cam.cy) * cam.k;
+    text(typed('without compounding: $400', prog(t, b(24), b(24) + .5)), 64, sy - 14, 28, { weight: 400, id: 'no-comp' });
+  }
+}
+
+function draw(frame) {
+  const t = frame / FPS;
+  BOIL = LOOK.boil ? Math.floor(frame / LOOK.boil) : 0; LAYOUT = [];
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.filter = 'none'; ctx.globalAlpha = 1;
+  ctx.drawImage(paper, 0, 0);
+  const shot = SHOTS.find(s => t >= s.from && t < s.to) || SHOTS[SHOTS.length - 1];
+  withCamera(shot.cam(t), () => world(t));
+  hud(t); captions(t); legend(t);
+  window.LAYOUT = LAYOUT;
+}
+window.draw = draw; window.FRAMES = FRAMES; window.FPS = FPS;
+window.CUES = SHOTS.slice(1).map(s => s.from);
+// ---------- soundtrack (skills/soundtrack/templates/groove.js) ----------
+// groove.js: a beat-grid score with sections, a break, and a synthesized sound for every action.
+// Paste into the page's <script> (before the live-preview block), then:
+//   window.SCORE = ac => buildGroove(ac, { dur: DUR, bpm: BPM, sections: SECTIONS, events: EVENTS });
+// The picture reads the same BPM / SECTIONS / EVENTS, so sound and image can't drift apart.
+//
+// sections: [[fromBar, toBar, layers], ...]  layers from:
+//   'pad' 'padSoft' 'kick2' 'kick4' 'hat8' 'hat16' 'clap' 'bassHalf' 'bass8' 'lead' 'pluck' 'crash'
+//   A section with [] layers is a break: silence (the SFX still play).
+// events:   [[seconds, sfxName, arg?], ...]  sfxName from the FX table below.
+// kit:      the instrument set, chosen per piece: 'electro' | 'acoustic' | 'keys' | 'percussion'
+// harmony:  a mood from HARMONY below, or your own chords (one per bar, MIDI notes); key: semitone transpose.
+// Choose kit, harmony, key and bpm for THIS piece; don't reuse the last piece's choices.
+// Layering rule learned the hard way: bring layers in one or two per bar. Kick + bass entering
+// together after a quiet intro jumped +11 dB and read as a startle; staggered, it was +3.5 dB.
+const HARMONY = {
+  bright:  [[60, 64, 67], [65, 69, 72], [67, 71, 74], [60, 64, 67]],          // I IV V I: plain, sunny
+  wistful: [[57, 60, 64], [53, 57, 60], [48, 52, 55], [55, 59, 62]],          // vi IV I V: pop, bittersweet
+  dreamy:  [[60, 64, 67, 71], [62, 66, 69, 72], [60, 64, 67, 71], [55, 59, 62, 66]], // lydian maj7 colour: floating, wonder
+  tense:   [[57, 60, 64], [53, 57, 60], [52, 56, 59], [57, 60, 64]],          // harmonic minor, i VI V i: suspense, mystery
+  folk:    [[62, 66, 69], [67, 71, 74], [62, 66, 69], [57, 61, 64]],          // I IV I V in D: warm, open
+  blues:   [[60, 64, 67, 70], [65, 69, 72, 75], [60, 64, 67, 70], [67, 71, 74, 77]], // dominant 7ths: cheeky, swaggering
+};
+function buildGroove(ac, { dur, bpm = 120, sections, events = [], kit = 'electro', harmony = 'wistful', key = 0, gain = .9 } = {}) {
+  const chords = (Array.isArray(harmony) ? harmony : HARMONY[harmony]).map(c => c.map(m => m + key));
+  const T0 = ac.currentTime + (ac instanceof OfflineAudioContext ? 0 : .05), BEAT = 60 / bpm;
+  const hz = m => 440 * Math.pow(2, (m - 69) / 12);
+  const out = ac.createDynamicsCompressor(); out.threshold.value = -12; out.ratio.value = 3; out.connect(ac.destination);
+  const master = ac.createGain(); master.gain.value = gain; master.connect(out);
+  const M = ac.createGain(), X = ac.createGain(); M.connect(master); X.connect(master); X.gain.value = .9;
+  const rev = ac.createConvolver(), wet = ac.createGain(); wet.gain.value = .22; rev.connect(wet); wet.connect(master); M.connect(rev); X.connect(rev);
+  { const n = Math.round(ac.sampleRate * 1.6), ir = ac.createBuffer(2, n, ac.sampleRate);          // seeded room: identical every render
+    for (let c = 0; c < 2; c++) { const d = ir.getChannelData(c); let s = 99 + c; for (let i = 0; i < n; i++) { s = (s * 1103515245 + 12345) & 0x7fffffff; d[i] = (s / 0x7fffffff * 2 - 1) * Math.pow(1 - i / n, 3); } } rev.buffer = ir; }
+  const noise = (() => { const n = ac.sampleRate, buf = ac.createBuffer(1, n, n), d = buf.getChannelData(0); let s = 7; for (let i = 0; i < n; i++) { s = (s * 1103515245 + 12345) & 0x7fffffff; d[i] = s / 0x7fffffff * 2 - 1; } return buf; })();
+  const env = (g, t, a, peak, decay) => { g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(peak, t + a); g.gain.setTargetAtTime(0, t + a, decay); };
+  function osc(bus, t, type, f, peak, a, decay, f2, glide = .05, pan = 0) {
+    const o = ac.createOscillator(), g = ac.createGain(), p = ac.createStereoPanner(); o.type = type; o.frequency.setValueAtTime(f, t);
+    if (f2) o.frequency.exponentialRampToValueAtTime(f2, t + glide); p.pan.value = pan; env(g, t, a, peak, decay); o.connect(g); g.connect(p); p.connect(bus); o.start(t); o.stop(t + a + decay * 7);
+  }
+  function hiss(bus, t, type, f, q, peak, a, decay, f2, glide = .1, pan = 0) {
+    const s = ac.createBufferSource(), fl = ac.createBiquadFilter(), g = ac.createGain(), p = ac.createStereoPanner(); s.buffer = noise;
+    fl.type = type; fl.frequency.setValueAtTime(f, t); if (f2) fl.frequency.exponentialRampToValueAtTime(f2, t + glide); fl.Q.value = q; p.pan.value = pan;
+    env(g, t, a, peak, decay); s.connect(fl); fl.connect(g); g.connect(p); p.connect(bus); s.start(t, (t * 7.3) % .5); s.stop(t + a + decay * 7);
+  }
+  // instruments, per kit (same roles, different voices)
+  const soft = { electro: 1, acoustic: .7, keys: .45, percussion: .8 }[kit];
+  const kick = (t, a = .9) => kit === 'percussion' ? osc(M, t, 'sine', 130, a * .6, .002, .14, 90, .12)                       // low tom
+    : osc(M, t, 'sine', kit === 'electro' ? 150 : 110, a * soft, .002, kit === 'electro' ? .12 : .09, kit === 'electro' ? 42 : 55, .1);
+  const clap = (t, v = 1) => kit === 'electro' ? (hiss(M, t, 'bandpass', 1500, .9, .5 * v, .002, .06), hiss(M, t + .012, 'bandpass', 1700, .9, .35 * v, .002, .08))
+    : kit === 'acoustic' ? (hiss(M, t, 'bandpass', 1100, 3, .35 * v, .001, .02), osc(M, t, 'triangle', 420, .15 * v, .001, .03))              // rimshot
+    : kit === 'keys' ? hiss(M, t, 'lowpass', 3000, .7, .18 * v, .01, .12)                                                            // brush
+    : (osc(M, t, 'sine', 900, .3 * v, .001, .03), osc(M, t, 'sine', 1400, .15 * v, .001, .02));                                     // woodblock
+  const hat = (t, a = .12) => kit === 'electro' ? hiss(M, t, 'highpass', 7500, .7, a, .001, .025, null, 0, .3)
+    : hiss(M, t, 'bandpass', 6000, 1.2, a * (kit === 'keys' ? .4 : .7), .01, .045, null, 0, .3);                                    // shaker
+  const crash = t => hiss(M, t, 'highpass', 5000, .5, .35 * soft, .002, .6);
+  const bass = (t, m, len) => { const o = ac.createOscillator(), f = ac.createBiquadFilter(), g = ac.createGain();
+    o.type = kit === 'electro' ? 'sawtooth' : kit === 'acoustic' ? 'triangle' : 'sine'; o.frequency.value = hz(m);
+    f.type = 'lowpass'; f.frequency.value = kit === 'electro' ? 520 : 900; const pk = kit === 'percussion' ? .3 : .22;
+    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(pk, t + .01); g.gain.setTargetAtTime(0, t + (kit === 'percussion' ? .05 : len * .7), kit === 'percussion' ? .08 : .05);
+    o.connect(f); f.connect(g); g.connect(M); o.start(t); o.stop(t + len + .4); };
+  const pluck = (t, m, a = .12, pan = 0) => {
+    if (kit === 'keys') { osc(M, t, 'sine', hz(m), a * 1.1, .004, .5, null, 0, pan); osc(M, t, 'sine', hz(m) * 2.01, a * .35, .002, .18, null, 0, pan); osc(M, t, 'sine', hz(m) * 3.98, a * .12, .001, .06, null, 0, pan); return; }   // electric piano
+    if (kit === 'percussion') { osc(M, t, 'sine', hz(m), a * 1.2, .001, .12, null, 0, pan); osc(M, t, 'sine', hz(m) * 4, a * .3, .001, .03, null, 0, pan); return; }                                  // marimba
+    osc(M, t, 'triangle', hz(m), a, .003, kit === 'acoustic' ? .32 : .18, null, 0, pan); osc(M, t, 'sine', hz(m + 12), a * .3, .003, .08, null, 0, pan); };                                             // pluck / nylon
+  const pad = (t, notes, len, a = .045) => notes.forEach((m, i) => { const o = ac.createOscillator(), g = ac.createGain(), f = ac.createBiquadFilter();
+    o.type = kit === 'keys' ? 'sawtooth' : 'sine'; o.frequency.value = hz(m); o.detune.value = (i - 1) * (kit === 'keys' ? 9 : 6);           // keys: a string section
+    f.type = 'lowpass'; f.frequency.value = kit === 'keys' ? 1400 : 8000; const pk = kit === 'keys' ? a * .5 : a, at = kit === 'keys' ? .7 : .4;
+    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(pk, t + at); g.gain.setValueAtTime(pk, t + len - .3); g.gain.linearRampToValueAtTime(0, t + len + .2);
+    o.connect(f); f.connect(g); g.connect(M); o.start(t); o.stop(t + len + .3); });
+  const bars = Math.ceil(dur / (4 * BEAT)); let prevL = [];
+  for (let bar = 0; bar < bars; bar++) {
+    const sec = sections.find(([a, e]) => bar >= a && bar < e); if (!sec) { prevL = []; continue; }
+    const L = sec[2], t0 = T0 + bar * 4 * BEAT, ch = chords[bar % chords.length], first = bar === sec[0];
+    // a drum layer's first bar comes in at half strength, so it arrives instead of jumping out
+    const fresh = n => L.includes(n) && !prevL.includes(n) && bar > 0, kv = (fresh('kick4') || fresh('kick2')) && !prevL.some(x => x.startsWith('kick')) ? .5 : 1, cv = fresh('clap') ? .6 : 1;
+    if (L.includes('pad')) pad(t0, ch.map(m => m + 12), 4 * BEAT); if (L.includes('padSoft')) pad(t0, ch.map(m => m + 12), 4 * BEAT, .035);
+    if (L.includes('crash') && first) crash(t0);
+    for (let s = 0; s < 16; s++) { const t = t0 + s * BEAT / 4, on = s % 4 === 0, beat = s / 4;
+      if (L.includes('kick4') && on) kick(t, .9 * kv); if (L.includes('kick2') && (s === 0 || s === 8)) kick(t, .6 * kv);
+      if (L.includes('clap') && (s === 4 || s === 12)) clap(t, cv);
+      if (L.includes('hat8') && s % 2 === 0 && !on) hat(t); if (L.includes('hat16') && !on) hat(t, s % 2 ? .07 : .12);
+      if (L.includes('bassHalf') && (s === 0 || s === 8)) bass(t, ch[0] - 24, 2 * BEAT);
+      if (L.includes('bass8') && s % 2 === 0) bass(t, ch[0] - 24 + (s % 8 === 6 ? 12 : 0), BEAT / 2);
+      if (L.includes('lead')) pluck(t, [ch[0], ch[1], ch[2], ch[1] + 12][s % 4] + 12, .07, s % 2 ? .3 : -.3);
+      if (L.includes('pluck') && on) pluck(t, [ch[2], ch[1], ch[0], ch[1]][beat] + 12, .1);
+    }
+    prevL = L;
+  }
+  // sound effects: one per visible action
+  const FX = {
+    click: t => hiss(X, t, 'highpass', 3000, .7, .09, .001, .012), clack: t => { hiss(X, t, 'bandpass', 2200, 1, .25, .001, .03); osc(X, t, 'sine', 120, .25, .002, .05); },
+    switch: t => hiss(X, t, 'bandpass', 3000, 2, .2, .001, .015),
+    whooshIn: t => hiss(X, t, 'bandpass', 300, 1.2, .3, .35, .25, 3500, .45), whooshOut: t => hiss(X, t, 'bandpass', 3500, 1.2, .25, .3, .25, 300, .45),
+    whoosh: t => hiss(X, t, 'bandpass', 500, 1, .22, .15, .15, 2500, .3),
+    boing: t => { osc(X, t, 'sine', 520, .3, .005, .18, 180, .25); osc(X, t + .02, 'sine', 260, .15, .005, .12); },
+    clank: t => { osc(X, t, 'triangle', 880, .22, .001, .06); osc(X, t, 'triangle', 1318, .12, .001, .05); hiss(X, t, 'bandpass', 4000, 3, .15, .001, .02); },
+    ding: t => { osc(X, t, 'sine', 1568, .22, .002, .35); osc(X, t, 'sine', 2349, .08, .002, .2); },
+    pop: t => osc(X, t, 'sine', 500, .28, .002, .06, 900, .05), popLow: (t, i = 0) => osc(X, t, 'sine', 220 + i * 40, .3, .002, .08, 420 + i * 60, .06, i % 2 ? .4 : -.4),
+    tick: t => { hiss(X, t, 'bandpass', 2600, 4, .22, .001, .02); osc(X, t, 'triangle', 620, .12, .001, .03, 300, .04); },
+    swish: t => hiss(X, t, 'bandpass', 1200, 2, .18, .03, .08, 2500, .12), thud: t => { osc(X, t, 'sine', 110, .5, .002, .12, 40, .12); hiss(X, t, 'lowpass', 400, 1, .2, .002, .06); },
+    clonk: t => { osc(X, t, 'triangle', 330, .25, .001, .07); osc(X, t, 'triangle', 495, .12, .001, .05); },
+    creak: t => osc(X, t, 'sawtooth', 90, .05, .02, .12, 70, .2),
+    blip: (t, i = 0) => osc(X, t, 'square', 880 + i * 110, .06, .002, .04, null, 0, (i - 2.5) * .15),
+    zip: (t, i = 0) => osc(X, t, 'sawtooth', 200 + i * 45, .06, .004, .08, 700 + i * 90, .12, i % 2 ? .3 : -.3),
+    flag: t => { hiss(X, t, 'bandpass', 1800, 1.5, .2, .01, .06); osc(X, t + .05, 'sine', 1319, .2, .002, .3); osc(X, t + .12, 'sine', 1760, .2, .002, .4); },
+    alarm: t => { osc(X, t, 'square', 1760, .07, .002, .05); osc(X, t + .12, 'square', 1760, .07, .002, .05); },
+    step: t => { osc(X, t, 'sine', 140, .12, .002, .04, 90, .04); hiss(X, t, 'lowpass', 800, 1, .05, .002, .02); },
+    notify: t => { osc(X, t, 'sine', 1319, .25, .002, .25); osc(X, t + .1, 'sine', 1976, .22, .002, .35); },
+    drip: t => osc(X, t, 'sine', 1400, .18, .002, .08, 700, .08),
+  };
+  for (const [t, name, arg] of events) { if (!FX[name]) throw new Error(`groove: unknown sfx "${name}"`); FX[name](T0 + t, arg); }
+  master.gain.setValueAtTime(gain, T0 + dur - 1); master.gain.linearRampToValueAtTime(0, T0 + dur);
+}
+window.SCORE = ac => buildGroove(ac, { dur: DUR, bpm: BPM, sections: SECTIONS, events: EVENTS, kit: 'percussion', harmony: 'bright', key: 2, gain: .85 });
+
+// live preview when opened directly in a browser (render.mjs loads the page with ?render)
+if (!new URLSearchParams(location.search).has('render')) {
+  let start = performance.now();
+  const loop = () => { draw(Math.floor((performance.now() - start) / 1000 * FPS) % FRAMES); requestAnimationFrame(loop); };
+  loop();
+  // browsers only allow sound after a user gesture: click restarts from 0 with the score playing
+  addEventListener('click', () => { if (!window.SCORE) return; const ac = new AudioContext(); window.SCORE(ac); start = performance.now() + 50; }, { once: true });
+}
+</script>
+</body>
+</html>
