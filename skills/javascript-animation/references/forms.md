@@ -4,7 +4,7 @@ Infer the form from the brief; don't ask unless nothing points anywhere. These a
 
 ## Story (a character, something happens)
 
-- 5-8 scenes, 4-8 s each, 30-60 s total. One beat per scene.
+- 7-12 shots per 30 s (2-5 s each), grouped into a few scenes. One beat per shot.
 - A title beat (2-4 s), a middle that changes something, an ending that lands and **holds** (let motion stop before the last line appears).
 - Wordless works (Kevin Ngo's watermelon piece has no text). If there are captions, keep them short and bilingual only if the audience is.
 - A recurring character carries the film: see `character.md`.

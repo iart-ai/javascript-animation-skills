@@ -6,11 +6,16 @@ version: 0.2.0
 
 # Soundtrack
 
-## Two templates
+## Two templates, many sounds
 
-- `templates/groove.js` (**default for anything with actions**: stories, comedy, explainers with steps): a beat grid with sections, percussion (kick, clap, hats), bass, pads, a lead, a deliberate **break**, and ~20 synthesized sound effects. It reads the page's `BPM`, `SECTIONS` and `EVENTS`, the same data the picture uses, so every action has its sound on the same frame.
-  `window.SCORE = ac => buildGroove(ac, { dur: DUR, bpm: BPM, sections: SECTIONS, events: EVENTS });`
-- `templates/score.js` (gentle pieces: lullabies, ambient, poems): music box, pad and bass with a tempo map that lands each cut on a downbeat, no percussion.
+Choose per piece from the mood in the look and sound brief; don't reuse the last piece's sound.
+
+- `templates/groove.js`: a beat grid with sections, drums, bass, pads, a lead, optional breaks, and ~20 synthesized sound effects, all from the page's `BPM`, `SECTIONS` and `EVENTS` (the same data the picture uses, so every action has its sound on the same frame).
+  - `kit`: `'electro'` (kick, clap, hats, saw bass), `'acoustic'` (soft kick, rimshot, shaker, upright-ish bass, nylon pluck), `'keys'` (brushes, electric piano, a string pad), `'percussion'` (toms, woodblocks, shaker, marimba).
+  - `harmony`: `'bright'`, `'wistful'`, `'dreamy'`, `'tense'`, `'folk'`, `'blues'`, or your own chords; `key` transposes.
+  - Layers are yours: a lullaby can be `['padSoft', 'pluck']` with no drums at all.
+  `window.SCORE = ac => buildGroove(ac, { dur: DUR, bpm: BPM, sections: SECTIONS, events: EVENTS, kit: 'acoustic', harmony: 'folk' });`
+- `templates/score.js`: music box, pad and bass with a tempo map that lands each cut on a downbeat; `chime: true` adds a faint bell on cuts.
 
 ## Default: synthesize it in the page (no key, no files)
 

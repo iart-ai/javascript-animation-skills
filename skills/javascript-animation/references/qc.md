@@ -32,11 +32,12 @@ The agent runs this; the user never sees it. Open the contact sheet (`render.mjs
 
 ## Director pass (contact sheet at 2 fps)
 
-- [ ] Pace: roughly 10-20 shots per 30 s; no single static composition held more than ~3 s.
+- [ ] Pace fits the form (pace table in `storyboard.md`): quick for comedy, slow and held for ambient or lullaby. The failure is a hold with nothing happening, not a long shot.
 - [ ] Framing varies (wide / medium / close / extreme close); at least one push-in or pull-out.
-- [ ] No fully still frames: every shot has a camera drift and at least one secondary motion.
+- [ ] No dead frames: every shot has something alive (a camera drift, a breathing motion, light changing), even when it's slow.
 - [ ] Every visible action has its sound in `EVENTS`.
-- [ ] Grown-up look: not everything rounded and outlined; limited palette with a clear lead colour; depth (far is lighter/bluer); off-centre compositions.
+- [ ] The look fits the audience and matches the look brief (style, palette, line, ground, type). For an adult audience, no accidental defaults: everything rounded, outlines on every shape, many equal saturated colours, flat front-on staging, always-centred subjects.
+- [ ] It doesn't look or sound like the bundled examples or the previous piece.
 
 ## Motion
 

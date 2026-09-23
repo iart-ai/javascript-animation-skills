@@ -14,6 +14,8 @@ Techniques, not presets. Each one is a way of making marks; the palette, scale a
 | 6. Marker / gouache fill | Renders correctly as a still; not yet used in a full film |
 | 7. Cinematic flat + blueprint | Used across a full film (the "fix one line" example) |
 
+The table above is about how tested the code is, not which style to prefer.
+
 ## Derive the look
 
 Before drawing, write down what the subject is made of and let that pick the marks:
@@ -135,20 +137,22 @@ function markerFill(pts, color, { angle = -.5, width = 26, seed = 3, alpha = .82
 }
 ```
 
-## Avoiding the childish look
+## Style spectrum: choose by audience and tone
 
-The default ways of drawing in code drift toward a toy look. What causes it, and what to do instead:
+There is no house style. These are all legitimate ends of the range; pick (or mix) per piece, and say why in the look brief. The same subject for a toddler and for engineers should come out differently.
 
-| Looks childish | Looks grown-up |
-|---|---|
-| Every corner rounded, including walls and buildings | Hard corners on hard things; round only what is soft |
-| An outline around every shape (sticker style) | No outlines on masses; separate shapes by value (light side / shadow side) |
-| Big-head, blushing chibi proportions by default | Proportions chosen per piece; simple faces without blush unless the tone wants it |
-| Many saturated colours at equal weight | 3-5 inks, one lead colour, the rest muted |
-| Everything at the same distance, front-on | Depth: far things lighter and bluer, overlapping silhouettes, long shadows |
-| Subject always dead centre | Off-centre framing, negative space, tiny figures in big spaces |
+| Style | Reads as | Fits | Main moves |
+|---|---|---|---|
+| Picture book | warm, safe, playful | small children, family pieces, gentle stories | rounded shapes, soft tinted outlines, blush, big-head proportions, `shape()` + `blush()` |
+| Ink doodle | handmade, candid, witty | explainers, personal notes, sketches | `ink()` with wobble and boil, hatching, paper ground |
+| Cinematic flat | grown-up, atmospheric | adult stories, comedy with mood, cities/nights | no outlines (`flatMass`), 3-5 inks, depth by value, silhouettes, off-centre framing |
+| Blueprint / technical | precise, constructive | engineering, "how it's built", code | fine lines, `guide()` construction lines, dimension marks |
+| Spot-colour print | bold, graphic, editorial | posters, music, culture | `spotLayers` multiply, misregistration, grain |
+| Engraving | classic, serious | history, science, portraits | `spiralShade` / line density for tone |
+| Marker / gouache | lively, painterly | travel, food, nature | `markerFill` strokes |
+| Clean geometric | modern, crisp | product, data, UI ideas | `LOOK.wobble = 0`, flat colour, hard edges, no texture |
 
-Useful references for the grown-up end, borrowed as techniques only: cinematic flat editorial illustration (limited palettes, silhouettes, grain, filmic framing), architectural and blueprint drawing (fine precise lines, construction guides, dimension marks), mid-century modern illustration (geometric but refined shapes).
+What makes a piece look accidentally childish is not any one style but defaults left in by accident when the audience is adult: every corner rounded, an outline on every shape, many saturated colours at equal weight, everything front-on at one distance, the subject always dead centre. When the audience is a child, several of those are exactly right.
 
 ## 7. Cinematic flat + blueprint (in the starter)
 
