@@ -8,7 +8,7 @@ Infer the form from the brief; don't ask unless nothing points anywhere. These a
 - A title beat (2-4 s), a middle that changes something, an ending that lands and **holds** (let motion stop before the last line appears).
 - Wordless works (Kevin Ngo's watermelon piece has no text). If there are captions, keep them short and bilingual only if the audience is.
 - A recurring character carries the film: see `character.md`.
-- One specific, human detail beats general adjectives ("one hand. baby's asleep").
+- One specific, human detail beats general adjectives (the name on a mug, the one sock that never matches).
 
 ## Explainer (make a mechanism clear)
 

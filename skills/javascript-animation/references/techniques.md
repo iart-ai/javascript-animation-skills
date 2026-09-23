@@ -1,6 +1,6 @@
 # Drawing techniques
 
-Techniques, not presets. Each one is a way of making marks; the palette, scale and combination come from the subject (see "Derive the look" below). All snippets assume the helpers in `templates/starter.html` (`ctx`, `W`, `H`, `rng`, `hash2`, `clamp`, `lerp`, `ink`, `fill`, `tracePath`, `J`, `circle`, `rect`, `resample`).
+Techniques, not presets. Each one is a way of making marks; the palette, scale and combination come from the subject (see "Derive the look" below). All snippets assume the helpers in `templates/starter.html` (`ctx`, `W`, `H`, `rng`, `hash2`, `clamp`, `lerp`, `ink`, `fill`, `tracePath`, `J`, `circle`, `rect`, `arc`, `resample`).
 
 **How tested each one is** (be honest with the user about this):
 
@@ -133,6 +133,17 @@ function markerFill(pts, color, { angle = -.5, width = 26, seed = 3, alpha = .82
   ctx.restore();
 }
 ```
+
+## Depth without 3D (a road, a river, a corridor)
+
+Put a horizon at `HZ` and a vanishing x. Give each moving thing a depth `d` in 0..1 that loops with time (`d = (k / N + t * speed) % 1`); its screen row is `y = HZ + (H - HZ) * d * d` and its scale `lerp(.08, 1.6, d * d)`. Stripes across the path at those rows rush toward the viewer; objects placed at the path edge (± half-width at that row) grow as they pass. The squared depth is what makes it read as perspective. Used for a stroller-eye view down a park path.
+
+## Canvas gotchas
+
+- **Build gradients after the transform they live in.** `createRadialGradient(x, y, …)` then `translate(x, y)` moves the gradient off by (x, y) again, and the fill silently shows nothing. Translate/scale first, then create the gradient at (0, 0).
+- **`ctx.filter` blur and saturate** work in headless Chrome and in the render; they are the cheapest way to show "how someone else sees it" (see `drawLayer`).
+- **Monospace fonts lack many glyphs** (`≈`, arrows, CJK) and swap them silently. Check the stills; use a font stack that has the characters.
+- **`-x ** y` is a syntax error** in JS; write `-(x ** y)`.
 
 ## Motion building blocks (in the starter)
 

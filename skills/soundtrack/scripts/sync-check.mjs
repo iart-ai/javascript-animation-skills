@@ -39,6 +39,8 @@ visual.sort((a, b) => a.t - b.t);
 if (opt('--cues-file')) { visual.length = 0; for (const t of JSON.parse(readFileSync(opt('--cues-file'), 'utf8'))) visual.push({ t, kind: 'cue' }); }
 
 // ---- audio: onset strength from 10ms energy rises ----
+const hasAudio = execFileSync('ffprobe', ['-v', 'error', '-select_streams', 'a', '-show_entries', 'stream=index', '-of', 'csv=p=0', file]).toString().trim();
+if (!hasAudio) { console.error(`${file} has no audio stream: nothing to check. (Does the page define window.SCORE, or did you mux a track?)`); process.exit(1); }
 const SR = 12000, pcm = execFileSync('ffmpeg', ['-v', 'error', '-i', file, '-vn', '-ac', '1', '-ar', String(SR), '-f', 's16le', '-'], { maxBuffer: 1 << 30 });
 const hop = SR / 100, nH = Math.floor(pcm.length / 2 / hop), env = [];
 for (let h = 0; h < nH; h++) { let e = 0; for (let k = 0; k < hop; k++) { const v = pcm.readInt16LE((h * hop + k) * 2) / 32768; e += v * v; } env.push(Math.sqrt(e / hop)); }
@@ -58,7 +60,8 @@ const rms = (t0, t1) => { const a = Math.max(0, Math.round(t0 * 100)), b = Math.
   let e = 0; for (let i = a; i < b; i++) e += env[i] * env[i]; return Math.sqrt(e / Math.max(1, b - a)) + 1e-6; };
 console.log('visual event        nearest strong onset   offset   loudness jump   verdict');
 let bad = 0;
-const events = visual.filter(v => v.t >= 1); // the opening second has no 'before' to compare against
+// skip the opening second (no 'before' to compare against) and the closing fade (not a cut)
+const dur = nF / FPS, events = visual.filter(v => v.t >= 1 && v.t <= dur - .6);
 for (const v of events) {
   const near = strong.reduce((b, t) => Math.abs(t - v.t) < Math.abs(b - v.t) ? t : b, Infinity), off = near - v.t;
   // a cut should be heard, not jumped at: >6 dB louder than the second before it reads as a startle

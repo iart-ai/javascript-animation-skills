@@ -1,6 +1,6 @@
 ---
 name: javascript-animation
-description: This skill should be used when the user asks to "draw every frame in JavaScript", "make an animation with no image assets", "animate this in code / on a canvas", "make a hand-drawn style animated video", "turn this into a short animated film", "make an animated explainer drawn in code", "make an animated story / picture book of my photos", or "make a zero-asset animation like the Opus 5.5 ones". Produces a single self-contained HTML file whose frames are computed on an HTML canvas (seekable, deterministic), renders it to MP4, and self-checks the result. Pairs with the soundtrack skill for code-synthesized music. NOT for charts from data (use chart-animation), pure text motion (use kinetic-typography), or 3D/WebGL (use webgl-animation).
+description: This skill should be used when the user asks to "draw every frame in JavaScript", "make an animation with no image assets", "animate this in code / on a canvas", "make a hand-drawn style animated video", "turn this into a short animated film", "make an animated explainer drawn in code", "make an animated story / picture book of my photos", or "make a zero-asset animation like the Opus 5.5 ones". Produces a single self-contained HTML file whose frames are computed on an HTML canvas (seekable, deterministic), renders it to MP4, and self-checks the result. Pairs with the soundtrack skill for code-synthesized music. NOT for charts from data (use chart-animation), pure text motion (use kinetic-typography), or 3D/WebGL (use threejs-animation / shader-glsl from webgl-animation-skills).
 version: 0.1.0
 ---
 
@@ -13,8 +13,8 @@ Make short animated films where every pixel is computed: no images, no fonts to 
 Run straight through. Pick sensible defaults and mention alternatives at delivery. Ask *before* starting only if there is no subject at all (e.g. "make an animation", nothing else).
 
 1. **Read the brief.** Infer the form (story, explainer, poem, loop, interactive page), length (default 30-45 s) and aspect (default 1080x1080) from what the user said. On-screen text is in the language the user wrote the brief in; make it bilingual only if they ask or the audience clearly is. `references/forms.md` has a short structure for each form.
-2. **Derive the look from the subject.** Write two or three sentences on why this subject gets this line, palette and texture, then pick the primitives that express it (`references/techniques.md`). Never reuse the look of the bundled example or a previous piece by default: two different subjects should not come out looking alike.
-3. **Storyboard in time.** A scene list with start times; one idea per scene; 4-8 s per scene. Export the scene boundaries as `window.CUES` (the soundtrack and the checks read them).
+2. **Derive the look from the subject.** Write two or three sentences on why this subject gets this line, palette and texture, then pick the primitives that express it (`references/techniques.md`). Never reuse the look of the bundled example or a previous piece by default: two different subjects should not come out looking alike. If the user points at someone else's piece ("like that viral one"), borrow its techniques, never its characters, story or compositions.
+3. **Storyboard in time.** A scene list with start times; one idea per scene; 4-8 s per scene. Export the scene boundaries as `window.CUES` (the soundtrack and the checks read them). A hard cut inside a scene (one image replaced by another without the dip) is a cut too: list it in CUES so the music lands on it.
 4. **Build from `templates/starter.html`.** Copy it, replace the placeholder palette, write one function per scene; each scene gets local time (0 at its own start), so cuts can move later without touching scene code. Keep the contract: `draw(frame)` is a pure function of the frame number. Use `rng(seed)` / `hash2()`, never `Math.random` or `Date`.
 5. **Self-check, then render** (next section). Fix and re-check until clean.
 6. **Deliver:** the MP4 and the HTML (it plays live in a browser; clicking starts the sound). Then, in one or two lines, offer what can change: another look, AI music instead of synthesized, different length.
@@ -54,11 +54,11 @@ Open the contact sheet and go through `references/qc.md` item by item: blank fra
 ## Files
 
 - `templates/starter.html`: drawing library (ink primitives, illustration primitives, labels, paper, filtered layers) and an empty two-scene skeleton.
-- `scripts/render.mjs`: MP4 / stills / contact sheet; writes `<out>.cues.json`; muxes the page's `window.SCORE` soundtrack.
+- `scripts/render.mjs`: MP4 / stills / contact sheet. `window.CUES` and `window.SCORE` are optional: on a full render it writes `<out>.cues.json` and muxes the SCORE soundtrack (no SCORE = silent MP4). Needs an even canvas size.
 - `scripts/asset-audit.mjs`: static scan + live network check for anything loaded or embedded.
 - `references/techniques.md`: tested drawing techniques (ink, spot-color print, single-line engraving, words as shapes, marker fills, illustration shapes).
 - `references/forms.md`: structure notes per form.
 - `references/character.md`: only when there's a character.
 - `references/qc.md`: the self-check list.
 
-Requirements: Node 18+, `npm i playwright-core`, ffmpeg, and Chrome installed (or `npx playwright install chromium`).
+Requirements: Node 18+, ffmpeg, Chrome (or `npx playwright install chromium`), and `npm i playwright-core` in the folder you run the scripts from (your project, not the skill folder).

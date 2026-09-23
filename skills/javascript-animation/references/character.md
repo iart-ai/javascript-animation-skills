@@ -6,7 +6,7 @@ Render the character by itself in every expression and pose the storyboard needs
 
 This is a self-check. Don't stop to ask the user to approve it.
 
-Write the character as one function with options, e.g. `uu(cx, cy, r, { eyes, mouth, lookX, lookY, rot, sway })`, so every scene draws the same person.
+Write the character as one function with options, e.g. `hero(cx, cy, r, { eyes, mouth, lookX, lookY, rot, sway })`, so every scene draws the same person.
 
 ## Anchor points
 

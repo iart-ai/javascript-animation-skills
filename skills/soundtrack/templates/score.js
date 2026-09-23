@@ -56,17 +56,17 @@ function buildScore(ac, { dur, cues = [], bar = 2.67, key = 0, tail = 4, gain = 
   for (let s = 0; s < bounds.length - 1; s++) {
     const a = bounds[s], b = bounds[s + 1], bars = Math.max(1, Math.round((b - a) / bar)), BAR = (b - a) / bars;
     progression(bars).forEach((name, bi) => {
-      const t0 = a + bi * BAR, ch = CH[name];
+      const t0 = a + bi * BAR, ch = CH[name], onCut = s > 0 && bi === 0; // the cut is marked by the chord change alone
       pad(t0, hz(ch[0] - 12), .05, BAR + .9);
       pad(t0, hz(ch[2] - 12), .035, BAR + .9);
-      bass(t0, hz(ch[0] - 24), .14);
+      bass(t0, hz(ch[0] - 24), onCut ? .1 : .14);
       PATTERN.forEach((k, i) => {
         if (s === 0 && bi === 0 && i % 2 && bars > 1) return; // sparse opening bar (only if more bars follow)
-        musicBox(t0 + i * BAR / 8, hz((k === 3 ? ch[0] + 12 : ch[k]) + 12), .085 * (i === 0 ? 1.15 : 1), i % 2 ? .35 : -.35);
+        musicBox(t0 + i * BAR / 8, hz((k === 3 ? ch[0] + 12 : ch[k]) + 12), .085 * (i === 0 && !onCut ? 1.15 : 1), i % 2 ? .35 : -.35);
       });
     });
   }
-  CUES.forEach((c, i) => softChime(c, hz(88 + [0, 7, 4, 9, 12][i % 5]), .035, i % 2 ? .5 : -.5));
+  CUES.forEach((c, i) => softChime(c, hz(88 + [0, 7, 4, 9, 12][i % 5]), .025, i % 2 ? .5 : -.5));
   const end = bounds[bounds.length - 1]; // ending: resolve on C; the roll starts exactly on the boundary
   bass(end, hz(48), .14); pad(end, hz(48), .06, TAIL);
   [60, 64, 67, 72].forEach((m, i) => musicBox(end + i * .08, hz(m + 12), .075, (i - 1.5) * .25));

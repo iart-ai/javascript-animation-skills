@@ -244,7 +244,7 @@ function draw(frame) {
 }
 window.draw = draw; window.FRAMES = FRAMES; window.FPS = FPS;
 window.CUES = SCENES.slice(1).map(([a]) => a); // scene cuts, read by render.mjs -> soundtrack
-// Optional soundtrack: paste skills/soundtrack/templates/score.js above, then:
+// Optional soundtrack: paste skills/soundtrack/templates/score.js right here, then:
 // window.SCORE = ac => buildScore(ac, { dur: DUR, cues: window.CUES });
 
 // live preview when opened directly in a browser (render.mjs loads the page with ?render)
@@ -253,7 +253,7 @@ if (!new URLSearchParams(location.search).has('render')) {
   const loop = () => { draw(Math.floor((performance.now() - start) / 1000 * FPS) % FRAMES); requestAnimationFrame(loop); };
   loop();
   // browsers only allow sound after a user gesture: click restarts from 0 with the score playing
-  if (window.SCORE) addEventListener('click', () => { const ac = new AudioContext(); window.SCORE(ac); start = performance.now() + 50; }, { once: true });
+  addEventListener('click', () => { if (!window.SCORE) return; const ac = new AudioContext(); window.SCORE(ac); start = performance.now() + 50; }, { once: true });
 }
 </script>
 </body>
