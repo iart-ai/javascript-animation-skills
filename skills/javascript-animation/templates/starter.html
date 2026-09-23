@@ -22,9 +22,10 @@ let ctx = cv.getContext('2d');
 
 // LOOK: every value here is a choice for THIS piece, not a default to keep. Decide each one from the
 // subject and the audience (references/techniques.md "Style spectrum"); don't carry choices over from
-// the bundled examples or from a previous piece. PAPER..YELLOW are placeholder names: rename them.
-const PAPER = '#efeee9', INK = '#222222', RED = '#c0392b', BLUE = '#34495e',
-      YELLOW = '#d4a017', SHADOW = 'rgba(0,0,0,0.16)';
+// a previous piece. The palette below is deliberately grey: it is not a palette, only names to replace.
+// Choose real colours for this piece (3-5, one lead) and rename them.
+const PAPER = '#f2f2f2', INK = '#1a1a1a', RED = '#8c8c8c', BLUE = '#5c5c5c',
+      YELLOW = '#b8b8b8', SHADOW = 'rgba(0,0,0,0.16)';
 const LOOK = {
   ground: 'flat',      // background: 'flat' (clean colour) | 'grain' (colour + fine noise) | 'paper' (grain, fibres, vignette)
   wobble: 1,           // hand-drawn edge wobble: 0 = clean geometric lines, 1 = pen, 2+ = loose sketch

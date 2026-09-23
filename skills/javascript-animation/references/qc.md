@@ -37,7 +37,7 @@ The agent runs this; the user never sees it. Open the contact sheet (`render.mjs
 - [ ] No dead frames: every shot has something alive (a camera drift, a breathing motion, light changing), even when it's slow.
 - [ ] Every visible action has its sound in `EVENTS`.
 - [ ] The look fits the audience and matches the look brief (style, palette, line, ground, type). For an adult audience, no accidental defaults: everything rounded, outlines on every shape, many equal saturated colours, flat front-on staging, always-centred subjects.
-- [ ] It doesn't look or sound like the bundled examples or the previous piece.
+- [ ] It doesn't look or sound like your previous piece.
 
 ## Motion
 
