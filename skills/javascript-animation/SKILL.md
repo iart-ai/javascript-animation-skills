@@ -8,6 +8,10 @@ version: 0.1.0
 
 Make short animated films where every pixel is computed: no images, no fonts to load, no libraries. One HTML file holds the whole piece; a headless browser seeks it frame by frame into an MP4.
 
+## Model
+
+Built and tested with Claude Opus 5.5; drawing quality depends heavily on the model. The self-check below needs image input: if the current model can't see images, say so to the user and treat visual verification as not done. Other models are untested; if the result looks crude, say that a stronger model is likely to help rather than claim it's the best possible.
+
 ## Default flow: don't stop to ask
 
 Run straight through. Pick sensible defaults and mention alternatives at delivery. Ask *before* starting only if there is no subject at all (e.g. "make an animation", nothing else).

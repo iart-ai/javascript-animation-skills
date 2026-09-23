@@ -55,6 +55,12 @@ It only asks you something when it can't reasonably guess. Characters, photo-bas
 
 - [generative-illustration-skills](https://github.com/iart-ai/generative-illustration-skills): AI *generates* the illustration parts and code animates them. This pack generates nothing: every mark is code.
 
+## Which model
+
+Built and tested with **Claude Opus 5.5**. The public pieces that started this trend were made with Claude Opus 5 and 5.5. Drawing a whole film in code leans hard on the model: spatial reasoning, taste, and long, careful code. The self-check needs a model that can **look at images** (it reviews its own contact sheets and stills).
+
+Other models have not been tested with this pack. Expect cruder drawings from weaker ones. If your agent lets you pick, use the strongest vision-capable model you have.
+
 ## Requirements
 
 Node 18+, `npm i playwright-core`, ffmpeg, and Chrome (or `npx playwright install chromium`). No API keys.
