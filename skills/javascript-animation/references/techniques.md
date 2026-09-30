@@ -13,6 +13,7 @@ Techniques, not presets. Each one is a way of making marks; the palette, scale a
 | 5. Words as the shape | Renders correctly as a still; not yet used in a full film |
 | 6. Marker / gouache fill | Renders correctly as a still; not yet used in a full film |
 | 7. Cinematic flat + blueprint | Used across a full film (the "fix one line" example) |
+| Overlay: no ground, rendered with alpha (SKILL.md "Overlays") | Used in a full piece (the lower-third example): rendered to VP9 WebM, alpha checked on a decoded frame (0 off the graphic, 239 on the panel) and kept through a ProRes 4444 conversion |
 
 
 ## Derive the look

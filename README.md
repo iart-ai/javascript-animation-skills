@@ -51,12 +51,29 @@ It only asks you something when it can't reasonably guess. Characters, photo-bas
 - "Turn these photos into an animated story."
 - "Make a short animated film / loop on a canvas."
 - "Add music made in code" / "sync the music to the cuts."
+- "Make a lower third / corner bug / subscribe reminder with a transparent background."
 
 ## Example prompts
 
 - "Make a 40-second hand-drawn explainer on why babies love black-and-white cards. Every frame in code."
 - "Animate a short wordless story about a paper boat on its first rainy day, picture-book style, with a music-box soundtrack."
 - "Here are photos of my dog. Make a 30-second animated day-in-the-life of her."
+
+## Overlays / transparent video
+
+Ask for an overlay ("a lower third for my interview, transparent background") and the agent paints no background: everything it doesn't draw stays see-through, the graphic sits in the lower third or a corner, and text gets its own panel or shadow so it reads over any footage. Render it to WebM with alpha:
+
+```bash
+node skills/javascript-animation/scripts/render.mjs overlay.html overlay.webm   # VP9 with alpha (or: overlay --alpha)
+```
+
+OBS (Media Source) and Chrome/Edge read WebM alpha directly. Premiere doesn't; convert to ProRes 4444 first (keeps the alpha):
+
+```bash
+ffmpeg -c:v libvpx-vp9 -i overlay.webm -c:v prores_ks -profile:v 4444 -pix_fmt yuva444p10le overlay.mov
+```
+
+Example: [lower-third](./examples/lower-third), an 8-second silent name strap. iArt's Animation mode makes these in the browser with no setup: [iart.ai/lower-thirds](https://www.iart.ai/lower-thirds?utm_source=github&utm_medium=readme&utm_campaign=javascript-animation-skills&utm_content=overlays).
 
 ## Not the same as
 

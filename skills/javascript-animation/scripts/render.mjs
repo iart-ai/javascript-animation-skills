@@ -8,11 +8,13 @@
 //
 // Usage:
 //   node render.mjs page.html out.mp4                  full render (H.264, yuv420p)
+//   node render.mjs page.html out.webm                 full render keeping transparency (VP9 + alpha; also: --alpha)
 //   node render.mjs page.html shot --stills 0,150,300  -> shot-0000.jpg shot-0150.jpg ...  (frames; or seconds: 2.5s,7s)
 //   node render.mjs page.html sheet.jpg --sheet [1]    one frame every N seconds, tiled into one image
 // Both are optional. On a full render, CUES are written to <out>.cues.json, and SCORE is rendered
 // offline to <out>.wav and muxed into the MP4 (without SCORE the MP4 is silent).
-// A full render needs an even canvas size (H.264); an output with no extension gets .mp4.
+// A full render needs an even canvas size (H.264); an output with no extension gets .mp4 (.webm with --alpha).
+// Stills and contact sheets are composited on a light checkerboard, so see-through areas read as such.
 //
 // Needs: node >= 18, `npm i playwright-core`, ffmpeg, and Chrome installed
 // (or run `npx playwright install chromium` once).
@@ -35,7 +37,7 @@ const chromium = await loadChromium();
 const args = process.argv.slice(2);
 const [pagePath, outArg] = args;
 const opt = name => { const i = args.indexOf(name); return i < 0 ? undefined : (args[i + 1] && !args[i + 1].startsWith('--') ? args[i + 1] : true); };
-if (!pagePath || !outArg) { console.error('usage: node render.mjs page.html <out> [--stills f1,f2] [--sheet [seconds]]'); process.exit(1); }
+if (!pagePath || !outArg) { console.error('usage: node render.mjs page.html <out> [--stills f1,f2] [--sheet [seconds]] [--alpha]'); process.exit(1); }
 
 let browser;
 try { browser = await chromium.launch({ channel: 'chrome' }); } catch { browser = await chromium.launch(); }
@@ -51,16 +53,29 @@ if (!info.hasDraw || !info.FRAMES || !info.FPS) { console.error('page must defin
 const stillsOrSheet = opt('--stills') || opt('--sheet');
 if (!stillsOrSheet && (info.w % 2 || info.h % 2)) { console.error(`canvas is ${info.w}x${info.h}: H.264 needs even width and height; change the <canvas> size`); await browser.close(); process.exit(1); }
 // a full render with no extension becomes .mp4; sidecars (.cues.json, .wav) sit next to the output
-const out = !stillsOrSheet && !parse(outArg).ext ? outArg + '.mp4' : outArg;
+const out = !stillsOrSheet && !parse(outArg).ext ? outArg + (opt('--alpha') ? '.webm' : '.mp4') : outArg;
+// transparent video: PNG frames with alpha -> VP9 WebM (yuva420p); an MP4 (H.264) can't carry alpha
+const alpha = !stillsOrSheet && parse(out).ext.toLowerCase() === '.webm';
+if (!stillsOrSheet && opt('--alpha') && !alpha) { console.error('--alpha needs a .webm output (H.264 MP4 has no alpha channel)'); await browser.close(); process.exit(1); }
 const sidecar = ext => { const p = parse(out); return format({ dir: p.dir, name: p.ext ? p.name : p.base, ext }); };
 
 const grab = f => page.evaluate(f => { window.draw(f); return document.querySelector('canvas').toDataURL('image/jpeg', 0.93).split(',')[1]; }, f);
 const jpg = async f => Buffer.from(await grab(f), 'base64');
+const png = async f => Buffer.from(await page.evaluate(f => { window.draw(f); return document.querySelector('canvas').toDataURL('image/png').split(',')[1]; }, f), 'base64');
+// stills and sheets: a JPEG has no alpha (see-through would read black), so draw frame f onto a light
+// checkerboard first; an opaque frame covers it completely and comes out unchanged
+await page.evaluate(() => { window.__checkered = f => {
+  window.draw(f); const src = document.querySelector('canvas'), c = document.createElement('canvas');
+  c.width = src.width; c.height = src.height; const x = c.getContext('2d'), s = Math.max(8, Math.round(src.width / 60));
+  x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height); x.fillStyle = '#d8d8d8';
+  for (let j = 0; j * s < c.height; j++) for (let i = j % 2; i * s < c.width; i += 2) x.fillRect(i * s, j * s, s, s);
+  x.drawImage(src, 0, 0); return c;
+}; });
+const checkered = async f => Buffer.from(await page.evaluate(f => window.__checkered(f).toDataURL('image/jpeg', 0.93).split(',')[1], f), 'base64');
 // for contact sheets: stamp the timestamp in the browser (ffmpeg drawtext is missing from many builds)
 const stamped = async (f, fps) => Buffer.from(await page.evaluate(([f, fps]) => {
-  window.draw(f); const src = document.querySelector('canvas'), c = document.createElement('canvas');
-  c.width = src.width; c.height = src.height; const x = c.getContext('2d'); x.drawImage(src, 0, 0);
-  const s = Math.round(src.width / 16); x.fillStyle = 'rgba(0,0,0,.65)'; x.fillRect(0, 0, s * 3.1, s * 1.3);
+  const c = window.__checkered(f), x = c.getContext('2d');
+  const s = Math.round(c.width / 16); x.fillStyle = 'rgba(0,0,0,.65)'; x.fillRect(0, 0, s * 3.1, s * 1.3);
   x.fillStyle = '#fff'; x.font = `700 ${Math.round(s * .8)}px monospace`; x.textBaseline = 'middle'; x.fillText((f / fps).toFixed(2) + 's', s * .25, s * .66);
   return c.toDataURL('image/jpeg', .9).split(',')[1];
 }, [f, fps]), 'base64');
@@ -68,7 +83,7 @@ const stamped = async (f, fps) => Buffer.from(await page.evaluate(([f, fps]) => 
 
 if (opt('--stills')) {
   for (const f of String(opt('--stills')).split(',').map(v => v.trim().endsWith('s') ? Math.round(parseFloat(v) * info.FPS) : Number(v))) {
-    const file = `${out}-${String(f).padStart(4, '0')}.jpg`; writeFileSync(file, await jpg(f)); console.log(file);
+    const file = `${out}-${String(f).padStart(4, '0')}.jpg`; writeFileSync(file, await checkered(f)); console.log(file);
   }
 } else if (opt('--sheet')) {
   const every = opt('--sheet') === true ? 1 : Number(opt('--sheet'));
@@ -85,14 +100,17 @@ if (opt('--stills')) {
   rmSync(dir, { recursive: true });
   console.log(`contact sheet: ${frames.length} frames (every ${every}s) -> ${out}`);
 } else {
-  const ff = spawn('ffmpeg', ['-y', '-loglevel', 'error', '-f', 'image2pipe', '-framerate', String(info.FPS), '-c:v', 'mjpeg', '-i', '-',
-    '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '18', '-movflags', '+faststart', out], { stdio: ['pipe', 'inherit', 'inherit'] });
+  const ff = spawn('ffmpeg', alpha
+    ? ['-y', '-loglevel', 'error', '-f', 'image2pipe', '-framerate', String(info.FPS), '-c:v', 'png', '-i', '-',
+      '-c:v', 'libvpx-vp9', '-pix_fmt', 'yuva420p', '-auto-alt-ref', '0', '-crf', '24', '-b:v', '0', '-row-mt', '1', out]
+    : ['-y', '-loglevel', 'error', '-f', 'image2pipe', '-framerate', String(info.FPS), '-c:v', 'mjpeg', '-i', '-',
+      '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '18', '-movflags', '+faststart', out], { stdio: ['pipe', 'inherit', 'inherit'] });
   let ffDone = false, ffCode = null; const closed = new Promise(r => ff.on('close', c => { ffDone = true; ffCode = c; r(); }));
   ff.on('error', e => { console.error('ffmpeg failed to start:', e.message); process.exit(1); });
   ff.stdin.on('error', () => {}); // reported below via the exit code
   for (let f = 0; f < info.FRAMES; f++) {
     if (ffDone) break;
-    if (!ff.stdin.write(await jpg(f))) await Promise.race([new Promise(r => ff.stdin.once('drain', r)), closed]);
+    if (!ff.stdin.write(await (alpha ? png(f) : jpg(f)))) await Promise.race([new Promise(r => ff.stdin.once('drain', r)), closed]);
     if (f % (info.FPS * 5) === 0) console.log(`frame ${f}/${info.FRAMES}`);
   }
   ff.stdin.end();
@@ -114,10 +132,10 @@ if (opt('--stills')) {
       const bytes = new Uint8Array(dv.buffer); let bin = ''; for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
       return btoa(bin);
     }, info.FRAMES / info.FPS);
-    const wav = sidecar('.wav'), silent = sidecar('.silent.mp4');
+    const wav = sidecar('.wav'), silent = sidecar(alpha ? '.silent.webm' : '.silent.mp4');
     writeFileSync(wav, Buffer.from(wav64, 'base64'));
     renameSync(out, silent);
-    execFileSync('ffmpeg', ['-y', '-loglevel', 'error', '-i', silent, '-i', wav, '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k', '-shortest', out]);
+    execFileSync('ffmpeg', ['-y', '-loglevel', 'error', '-i', silent, '-i', wav, '-c:v', 'copy', ...(alpha ? ['-c:a', 'libopus', '-b:a', '160k'] : ['-c:a', 'aac', '-b:a', '192k']), '-shortest', out]);
     rmSync(silent);
     console.log(`soundtrack (window.SCORE) -> ${wav}, muxed into ${out}`);
   }

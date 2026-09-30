@@ -1,6 +1,8 @@
 node_modules/
 .DS_Store
 *.mp4
+*.webm
+*.mov
 *.wav
 *.cues.json
 package.json

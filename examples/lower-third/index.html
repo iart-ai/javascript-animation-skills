@@ -2,20 +2,20 @@
 <html>
 <head>
 <meta charset="utf-8">
-<title>Untitled animation</title>
+<title>Lower third</title>
 <style>
   html,body{margin:0;background:#1b1917;display:grid;place-items:center;height:100vh}
-  canvas{width:min(100vw,100vh);height:auto;max-height:100vh}
+  canvas{width:min(100vw,177.78vh);height:auto;max-height:100vh}
 </style>
 </head>
 <body>
-<canvas id="c" width="1080" height="1080"></canvas>
+<canvas id="c" width="1920" height="1080"></canvas>
 <script>
 // Starter for a zero-asset, code-drawn animation. Every pixel is computed; nothing is loaded.
 // Contract (render.mjs relies on it): draw(frame) is a pure function of the frame number,
 // so any frame can be rendered alone, in any order. Never use Math.random or Date here:
 // use rng(seed) / hash2() so the same frame always looks the same.
-const W = 1080, H = 1080, FPS = 30, DUR = 6, FRAMES = FPS * DUR;
+const W = 1920, H = 1080, FPS = 30, DUR = 8, FRAMES = FPS * DUR;
 const cv = document.getElementById('c');
 cv.width = W; cv.height = H;
 let ctx = cv.getContext('2d');
@@ -24,12 +24,14 @@ let ctx = cv.getContext('2d');
 // subject and the audience (references/techniques.md); don't carry choices over from
 // a previous piece. The palette below is deliberately grey: it is not a palette, only names to replace.
 // Choose real colours for this piece (3-5, one lead) and rename them.
-const PAPER = '#f2f2f2', INK = '#1a1a1a', RED = '#8c8c8c', BLUE = '#5c5c5c',
-      YELLOW = '#b8b8b8', SHADOW = 'rgba(0,0,0,0.16)';
+// Overlay for interview footage (unknown picture underneath): no ground, a near-black panel carries the
+// text so it reads over bright or busy shots; one warm accent (lead) for the bar; clean, not hand-drawn.
+const PAPER = '#f4efe6', INK = '#14171c', PANEL = 'rgba(20,23,28,0.9)', ACCENT = '#f0a43a',
+      MUTED = '#c9c1b3', SHADOW = 'rgba(0,0,0,0.35)', BLUE = INK;
 const LOOK = {
-  ground: 'flat',      // background: 'flat' (clean colour) | 'grain' (colour + fine noise) | 'paper' (grain, fibres, vignette) | 'none' (transparent: overlays)
-  wobble: 1,           // hand-drawn edge wobble: 0 = clean geometric lines, 1 = pen, 2+ = loose sketch
-  boil: 4,             // redraw the wobble every N frames (line boil); 0 = steady
+  ground: 'none',      // background: 'flat' (clean colour) | 'grain' (colour + fine noise) | 'paper' (grain, fibres, vignette) | 'none' (transparent: overlays)
+  wobble: 0,           // hand-drawn edge wobble: 0 = clean geometric lines, 1 = pen, 2+ = loose sketch
+  boil: 0,             // redraw the wobble every N frames (line boil); 0 = steady
   font: '600 {s}px -apple-system, "Helvetica Neue", Arial, sans-serif',   // choose a family that fits: serif, rounded, mono, condensed, script...
   labelStyle: 'plain', // 'plain' (text) | 'pill' (rounded box) | 'tag' (paper tape) | 'underline'
   guideColor: INK,     // construction-line colour (blue only if the piece is a blueprint)
@@ -262,41 +264,46 @@ function drawLayer(fn, filter, clip) {
 }
 
 // ---------- storyboard: the single source of truth ----------
-// Beat grid first, then shots and blocking, then code. Scenes, camera and soundtrack all read these.
-const BPM = 120, BEAT = 60 / BPM, b = n => n * BEAT;            // b(8) = the 8th beat, in seconds
-const SECTIONS = [[0, 1, ['pad']], [1, 2, ['pad', 'hat8']], [2, 3, ['pad', 'hat8', 'kick2']], [3, 4, ['pad', 'kick4', 'hat8', 'clap']]];   // bars -> music layers; add one or two layers per bar
-const SHOTS = [                                                  // one world, many cameras; every cut on a beat
-  { from: 0, to: b(8), cam: t => ({ cx: 0, cy: -120, k: 1 + .06 * prog(t, 0, b(8)) }) },          // wide, slow push
-  { from: b(8), to: DUR, cam: t => ({ cx: 0, cy: -60, k: 2.4 }) },                                 // close-up
-];
-const BOX = { x: -40, drop: b(4), bounce: b(9) };                 // blocking: where the actor is, and when
-const EVENTS = [[b(4) + .3, 'thud'], [b(9), 'boing'], [b(10), 'ding']];   // [seconds, sfx]: one sound per visible action
+// One shot, no cuts, silent. In at 0.4 s, hold, out by 7.5 s; clear frames at both ends so it can be
+// dropped onto a timeline anywhere.
+const M = 0.06;                                                  // safe margin: 6% in from the edges
+const LT = { x: W * M, bottom: H * (1 - M), w: 760, h: 150, in: 0.4, out: 6.5 };
+const NAME = 'Maya Okafor', ROLE = 'Glassblower, Studio Nine';
 
-// ---------- the world, drawn in world coordinates ----------
-function world(t) {
-  ctx.fillStyle = '#d9d2c3'; ctx.fillRect(-2000, 0, 4000, 2000);                                   // floor
-  guide(boxR(BOX.x, -80, 80, 80), BOX.drop - .4, t);                                                // where it will land
-  const land = back(prog(t, BOX.drop, BOX.drop + .3)), hop = t > BOX.bounce ? Math.sin(prog(t, BOX.bounce, BOX.bounce + .5) * Math.PI) * 40 : 0;
-  if (t > BOX.drop) { const y = lerp(-900, -80, land) - hop; flatMass(box(BOX.x, y, 80, 80), RED); claim('box', 'keep', BOX.x, y, 80, 80); }
+function lowerThird(t) {
+  const open = easeOut(prog(t, LT.in, LT.in + .6)) * (1 - ease(prog(t, LT.out + .3, LT.out + .9)));
+  const bar = easeOut(prog(t, LT.in - .1, LT.in + .35)) * (1 - ease(prog(t, LT.out + .5, LT.out + 1)));
+  if (bar <= 0) return;
+  const x = LT.x, y = LT.bottom - LT.h, w = LT.w * open, h = LT.h;
+  ctx.save();                                                      // backing: soft shadow + near-black panel
+  ctx.shadowColor = SHADOW; ctx.shadowBlur = 30; ctx.shadowOffsetY = 8;
+  ctx.fillStyle = PANEL; ctx.fillRect(x, y, w, h);
+  ctx.restore();
+  ctx.fillStyle = ACCENT; ctx.fillRect(x, y + h * (1 - bar), 12, h * bar);   // accent bar grows up from the base
+  claim('panel', 'keep', x, y, LT.w, h);
+  ctx.save(); ctx.beginPath(); ctx.rect(x, y, w, h); ctx.clip();  // text lives inside the panel as it wipes open
+  const nameA = prog(t, LT.in + .35, LT.in + .8) * (1 - prog(t, LT.out, LT.out + .35));
+  const roleA = prog(t, LT.in + .6, LT.in + 1.05) * (1 - prog(t, LT.out - .1, LT.out + .25));
+  ctx.textBaseline = 'middle';
+  ctx.globalAlpha = nameA; ctx.fillStyle = PAPER; ctx.font = FONT.replace('{s}', 58);
+  ctx.fillText(NAME, x + 48 - 24 * (1 - easeOut(nameA)), y + 56);
+  ctx.globalAlpha = roleA; ctx.fillStyle = MUTED; ctx.font = FONT.replace('{s}', 34).replace('600', '500');
+  ctx.fillText(ROLE, x + 50 - 24 * (1 - easeOut(roleA)), y + 108);
+  ctx.restore();
+  if (nameA > 0) claim('name', 'text', x + 48, y + 24, 520, 62);
+  if (roleA > 0) claim('role', 'text', x + 50, y + 90, 520, 38);
 }
-const box = (x, y, w, h) => [[x, y], [x + w, y], [x + w, y + h], [x, y + h]];
-const boxR = (x, y, w, h) => resample(box(x, y, w, h), 10, true);
 
 function draw(frame) {
   const t = frame / FPS;
-  BOIL = LOOK.boil ? Math.floor(frame / LOOK.boil) : 0; LAYOUT = [];   // boil 4 = wobble redrawn ~7.5x/sec, like hand animation
+  BOIL = LOOK.boil ? Math.floor(frame / LOOK.boil) : 0; LAYOUT = [];
   ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.filter = 'none'; ctx.globalAlpha = 1;
-  ctx.clearRect(0, 0, W, H); ctx.drawImage(paper, 0, 0);
-  const shot = SHOTS.find(s => t >= s.from && t < s.to) || SHOTS[SHOTS.length - 1];
-  withCamera(shot.cam(t), () => world(t));
-  if (t > b(10)) { const w = 360, h = 64, [x, y] = placeFree(w, h, [[W / 2 - w / 2, 160], [W / 2 - w / 2, 820]]);   // text steps aside from claimed things
-    label('landed.', x + 20, y + h / 2, { size: 44, p: prog(t, b(10), b(10) + .6) }); claim('caption', 'text', x, y, w, h); }
+  ctx.clearRect(0, 0, W, H); ctx.drawImage(paper, 0, 0);        // ground 'none': paper is empty, the frame stays transparent
+  lowerThird(t);
   window.LAYOUT = LAYOUT;
 }
 window.draw = draw; window.FRAMES = FRAMES; window.FPS = FPS;
-window.CUES = SHOTS.slice(1).map(s => s.from);                     // cuts, read by render.mjs -> soundtrack and sync-check
-// Optional soundtrack: paste skills/soundtrack/templates/groove.js right here, then:
-// window.SCORE = ac => buildGroove(ac, { dur: DUR, bpm: BPM, sections: SECTIONS, events: EVENTS });
+window.CUES = [];                                                  // one shot, no cuts; silent (no SCORE)
 
 // live preview when opened directly in a browser (render.mjs loads the page with ?render)
 if (!new URLSearchParams(location.search).has('render')) {

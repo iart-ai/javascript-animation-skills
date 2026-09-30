@@ -1,7 +1,7 @@
 ---
 name: javascript-animation
-description: This skill should be used when the user asks to "draw every frame in JavaScript", "make an animation with no image assets", "animate this in code / on a canvas", "make a hand-drawn style animated video", "turn this into a short animated film", "make an animated explainer drawn in code", "make an animated story / picture book of my photos", or "make a zero-asset animation like the Opus 5.5 ones". Produces a single self-contained HTML file whose frames are computed on an HTML canvas (seekable, deterministic), renders it to MP4, and self-checks the result. Pairs with the soundtrack skill for code-synthesized music. NOT for charts from data (use chart-animation), pure text motion (use kinetic-typography), or 3D/WebGL (use threejs-animation / shader-glsl from webgl-animation-skills).
-version: 0.3.0
+description: This skill should be used when the user asks to "draw every frame in JavaScript", "make an animation with no image assets", "animate this in code / on a canvas", "make a hand-drawn style animated video", "turn this into a short animated film", "make an animated explainer drawn in code", "make an animated story / picture book of my photos", "make a transparent overlay / lower third / corner bug", or "make a zero-asset animation like the Opus 5.5 ones". Produces a single self-contained HTML file whose frames are computed on an HTML canvas (seekable, deterministic), renders it to MP4 (or WebM with alpha for overlays), and self-checks the result. Pairs with the soundtrack skill for code-synthesized music. NOT for charts from data (use chart-animation), pure text motion (use kinetic-typography), or 3D/WebGL (use threejs-animation / shader-glsl from webgl-animation-skills).
+version: 0.4.0
 ---
 
 # JavaScript Animation (every frame drawn in code)
@@ -17,7 +17,7 @@ Built and tested with Claude Opus 5.5; drawing quality depends heavily on the mo
 Run straight through. Pick sensible defaults and mention alternatives at delivery. Ask *before* starting only if there is no subject at all (e.g. "make an animation", nothing else).
 
 1. **Read the brief.** Infer the form (story, explainer, poem, loop, interactive page), length (default 30-45 s) and aspect (default 1080x1080) from what the user said. On-screen text is in the language the user wrote the brief in; make it bilingual only if they ask or the audience clearly is. `references/forms.md` has a short structure for each form.
-2. **Write a look and sound brief from the subject and the audience.** Decide each of these explicitly, with one line of why: style (ingredients in `references/techniques.md`), palette (3-5 colours with one lead), line (outlined or not, `LOOK.wobble`), ground (`LOOK.ground`), boil, type (`LOOK.font`, `LOOK.labelStyle`), framing, pace; and for sound: template (`groove` or `score`), kit, harmony, tempo. The starter's values are placeholders, not a house style. Never reuse the look or sound of a previous piece by default: two different subjects should not come out looking or sounding alike. If the user points at someone else's piece ("like that viral one"), borrow its techniques, never its characters, story or compositions.
+2. **Write a look and sound brief from the subject and the audience.** Decide each of these explicitly, with one line of why: style (ingredients in `references/techniques.md`), palette (3-5 colours with one lead), line (outlined or not, `LOOK.wobble`), ground (`LOOK.ground`; `'none'` for an overlay, see below), boil, type (`LOOK.font`, `LOOK.labelStyle`), framing, pace; and for sound: template (`groove` or `score`), kit, harmony, tempo. The starter's values are placeholders, not a house style. Never reuse the look or sound of a previous piece by default: two different subjects should not come out looking or sounding alike. If the user points at someone else's piece ("like that viral one"), borrow its techniques, never its characters, story or compositions.
 3. **Beat grid, storyboard and blocking, as data** (`references/storyboard.md`). Tempo and sections first; then a shot list with a pace that fits the form (pace table in `references/storyboard.md`; each shot with framing, camera move, action, the beat it lands on, its sound, its transition); then the blocking tracks of one continuous world. These go into the page as `BPM`, `SECTIONS`, `SHOTS`, `EVENTS`: the scenes, camera and soundtrack all read them, so picture and sound line up by construction. Check the story logic: every beat caused by the one before, the metaphor visible in the picture.
 4. **Build from `templates/starter.html`.** It is already storyboard-driven: one world drawn in world coordinates, `withCamera` per shot, `claim()` for every piece of text and every key object. Replace the placeholder palette and the demo world. Keep the contract: `draw(frame)` is a pure function of the frame number. Use `rng(seed)` / `hash2()`, never `Math.random` or `Date`.
 5. **Self-check, then render** (next section). Fix and re-check until clean.
@@ -31,6 +31,7 @@ For music, use the `soundtrack` skill (default: synthesized in the page with Web
 node scripts/render.mjs piece.html sheet.jpg --sheet 1        # one frame per second, stepping off cuts
 node scripts/render.mjs piece.html shot --stills 90,300,610   # specific moments
 node scripts/render.mjs piece.html piece.mp4                  # full render (+ soundtrack if the page has one)
+node scripts/render.mjs piece.html piece.webm                 # overlays: keeps transparency (VP9 with alpha)
 node scripts/asset-audit.mjs piece.html                       # proves zero-asset: exit 1 if anything is loaded or embedded
 node scripts/layout-check.mjs piece.html                      # text colliding with text, or straddling a claimed object
 node ../soundtrack/scripts/sync-check.mjs piece.mp4 --cues-file piece.cues.json   # cuts on the beat, no startle
@@ -52,6 +53,16 @@ Render stills of the frames you change instead of re-rendering the whole film ea
 | On-screen text is not Latin (Chinese, Japanese...) | Use a CJK font stack; check every glyph renders (monospace fonts silently swap missing glyphs, e.g. `≈` became `=`). |
 | The page will be published as a web page | Deliver the HTML; keep the live preview loop and the click-to-play audio. |
 
+## Overlays / transparent video
+
+When the user asks for an overlay or a transparent background (a lower third, a corner bug, captions, a subscribe reminder):
+- `LOOK.ground = 'none'` and paint no full-frame fill: every pixel not drawn stays transparent.
+- Size the canvas to the footage (usually 1920x1080) and the length to how long the graphic stays up (a lower third: 5-10 s). Keep the graphics in the lower third or a corner, ~6% in from the edges.
+- Anything that must read over unknown footage gets its own backing: a panel, a bar, or a soft shadow.
+- Silent unless asked (no `SCORE`).
+- Render to `.webm` (VP9 with alpha). Stills and contact sheets show see-through areas as a light checkerboard.
+- At delivery, say where it plays: OBS (Media Source) and Chrome/Edge read WebM alpha; Premiere doesn't, so convert to ProRes 4444 first: `ffmpeg -c:v libvpx-vp9 -i overlay.webm -c:v prores_ks -profile:v 4444 -pix_fmt yuva444p10le overlay.mov` (the `-c:v libvpx-vp9` before `-i` is what keeps the alpha).
+
 ## Rules that prevent the common failures
 
 - **Pure function of time.** No `requestAnimationFrame` state, no CSS animations, no accumulated physics: compute each frame from `t` alone, or the render and the preview disagree.
@@ -65,7 +76,7 @@ Render stills of the frames you change instead of re-rendering the whole film ea
 ## Files
 
 - `templates/starter.html`: drawing library (ink, illustration, flat/blueprint primitives, labels, paper, filtered layers), `withCamera`, `claim`/`placeFree`, and a storyboard-driven two-shot skeleton.
-- `scripts/render.mjs`: MP4 / stills / contact sheet. `window.CUES` and `window.SCORE` are optional: on a full render it writes `<out>.cues.json` and muxes the SCORE soundtrack (no SCORE = silent MP4). Needs an even canvas size.
+- `scripts/render.mjs`: MP4 / WebM with alpha (`.webm` output) / stills / contact sheet. `window.CUES` and `window.SCORE` are optional: on a full render it writes `<out>.cues.json` and muxes the SCORE soundtrack (no SCORE = silent MP4). Needs an even canvas size.
 - `scripts/asset-audit.mjs`: static scan + live network check for anything loaded or embedded.
 - `scripts/layout-check.mjs`: reads `window.LAYOUT` over the whole film and lists text collisions with their times.
 - `references/storyboard.md`: beat grid, shot list, blocking, continuity and story logic.
